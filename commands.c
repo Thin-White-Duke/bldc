@@ -790,7 +790,7 @@ void commands_process_packet(unsigned char *data, unsigned int len) {
 		break;
 
 	case COMM_GET_LIMITS:
-        mcconf = *mc_interface_get_configuration();
+    mcconf = *mc_interface_get_configuration();
 
 		ind = 0;
 		send_buffer[ind++] = COMM_GET_LIMITS;
