@@ -68,6 +68,7 @@ static volatile int curr0_offset;
 static volatile int curr1_offset;
 static volatile mc_state state;
 static volatile mc_control_mode control_mode;
+static volatile float max_pid_watt;
 static volatile float last_current_sample;
 static volatile float last_current_sample_filtered;
 static volatile float mcpwm_detect_currents_avg[6];
@@ -181,6 +182,7 @@ void mcpwm_init(volatile mc_configuration *configuration) {
 	tachometer_for_direction = 0;
 	state = MC_STATE_OFF;
 	control_mode = CONTROL_MODE_NONE;
+	max_pid_watt = 0;
 	last_current_sample = 0.0;
 	last_current_sample_filtered = 0.0;
 	switching_frequency_now = MCPWM_SWITCH_FREQUENCY_MAX;
@@ -567,6 +569,28 @@ void mcpwm_set_duty_noramp(float dutyCycle) {
 void mcpwm_set_pid_speed(float rpm) {
 	control_mode = CONTROL_MODE_SPEED;
 	speed_pid_set_rpm = rpm;
+	max_pid_watt = 0;
+	
+	if (state != MC_STATE_RUNNING) {
+		set_duty_cycle_hl(conf->l_min_duty);
+	}
+}
+
+/**
+ * Use PID rpm control. Note that this value has to be multiplied by half of
+ * the number of motor poles.
+ *
+ * @param rpm
+ * The electrical RPM goal value to use.
+ */
+void mcpwm_set_pid_speed_and_watt(float rpm, float new_max_pid_watt) {
+	control_mode = CONTROL_MODE_SPEED;
+	speed_pid_set_rpm = rpm;
+	max_pid_watt = new_max_pid_watt;
+	
+	if (state != MC_STATE_RUNNING) {
+		set_duty_cycle_hl(conf->l_min_duty);
+	}
 }
 
 /**
@@ -1058,23 +1082,22 @@ static void set_duty_cycle_hw(float dutyCycle) {
 }
 
 static void run_pid_control_speed(void) {
-	static float i_term = 0;
-	static float prev_error = 0;
+	static float i_term = 0.0;
+	static float prev_error = 0.0;
 	float p_term;
 	float d_term;
 
 	// PID is off. Return.
 	if (control_mode != CONTROL_MODE_SPEED) {
-		i_term = dutycycle_now;
-		prev_error = 0;
+		i_term = 0.0;
+		prev_error = 0.0;
 		return;
 	}
 
-	// Too low RPM set. Stop and return.
-	if (fabsf(speed_pid_set_rpm) < conf->s_pid_min_erpm) {
-		i_term = dutycycle_now;
+	// Too low RPM set. Reset state and return.
+	if (fabsf(speed_pid_set_rpm) <conf->s_pid_min_erpm) {
+		i_term = 0.0;
 		prev_error = 0;
-		mcpwm_set_duty(0.0);
 		return;
 	}
 
@@ -1098,21 +1121,27 @@ static void run_pid_control_speed(void) {
 	// Calculate output
 	float output = p_term + i_term + d_term;
 
-	// Make sure that at least minimum output is used
-	if (fabsf(output) < conf->l_min_duty) {
-		output = SIGN(output) * conf->l_min_duty;
+	if (conf->s_pid_breaking_enabled) {
+		utils_truncate_number(&output, -1.0, 1.0);
+	} else {
+		utils_truncate_number(&output, 0.0, 1.0);
 	}
+		
+	if (max_pid_watt != 0) {
+		const float actual_duty = dutycycle_now;
 
-	// Do not output in reverse direction to oppose too high rpm
-	if (speed_pid_set_rpm > 0.0 && output < 0.0) {
-		output = conf->l_min_duty;
-		i_term = 0.0;
-	} else if (speed_pid_set_rpm < 0.0 && output > 0.0) {
-		output = -conf->l_min_duty;
-		i_term = 0.0;
+		if (actual_duty < conf->l_min_duty){
+			current_set = output * (max_pid_watt / fabsf(GET_INPUT_VOLTAGE() * conf->l_min_duty));
+		} else {
+			current_set = output * (max_pid_watt / fabsf(GET_INPUT_VOLTAGE() * actual_duty));
+		}
+		
+		if(current_set > conf->lo_current_max){
+			current_set = conf->lo_current_max;
+		}
+	} else {
+		current_set = output * conf->lo_current_max;
 	}
-
-	set_duty_cycle_hl(output);
 }
 
 static void run_pid_control_pos(float dt) {
@@ -1778,7 +1807,7 @@ void mcpwm_adc_int_handler(void *p, uint32_t flags) {
 
 		float dutycycle_now_tmp = dutycycle_now;
 
-		if (control_mode == CONTROL_MODE_CURRENT || control_mode == CONTROL_MODE_POS) {
+		if (control_mode == CONTROL_MODE_CURRENT || control_mode == CONTROL_MODE_POS || control_mode == CONTROL_MODE_SPEED) {
 			// Compute error
 			const float error = current_set - (direction ? current_nofilter : -current_nofilter);
 			float step = error * conf->cc_gain * voltage_scale;

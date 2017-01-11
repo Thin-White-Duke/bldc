@@ -74,6 +74,6 @@
 #define MCCONF_S_PID_KP					0.0001	// Proportional gain
 #define MCCONF_S_PID_KI					0.002	// Integral gain
 #define MCCONF_S_PID_KD					0.0		// Derivative gain
-#define MCCONF_S_PID_MIN_RPM				1200.0	// Minimum allowed RPM
-
+#define MCCONF_S_PID_MIN_RPM			1200.0	// Minimum allowed RPM
+#define MCCONF_S_PID_BREAKING_ENABLED   1 		// enable braking at pid speed mode (cruise control)
 #endif /* MCCONF_STEN_H_ */

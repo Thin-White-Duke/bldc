@@ -53,10 +53,71 @@ static volatile bool is_running = false;
 static volatile chuck_data chuck_d;
 static volatile int chuck_error = 0;
 static volatile chuk_config config;
+static volatile throttle_config throt_config;
+
 static volatile bool output_running = false;
 
-void app_nunchuk_configure(chuk_config *conf) {
+static float px[5];
+static float py[5];
+static float nx[5];
+static float ny[5];
+
+float calculate_throttle_curve_chuk(float *x, float *y, float bezier_reduce_factor, float t) {
+	
+	float directSteps;
+	if (t < x[1]){
+	    directSteps = (y[1] / x[1] * t);
+	} else if (t > x[3]) {
+	    directSteps = ((y[4] - y[3]) / (x[4] - x[3]) * (t-x[3]) + y[3]);
+	} else if (t > x[2]) {
+	    directSteps = ((y[3] - y[2]) / (x[3] - x[2]) * (t-x[2]) + y[2]);
+	} else if (t > x[1]) {
+	    directSteps = ((y[2] - y[1]) / (x[2] - x[1]) * (t-x[1]) + y[1]);
+	} else { // (throttle == x[1])
+	    directSteps = y[1];
+	};
+
+	float f[5];
+	for (int i = 0; i < 5; i++) f[i] = y[i];
+
+	for (int j = 1; j < 5; j++ )
+		for (int i = 4; i >= j; i--)
+			f[i] = ( (t - x[i-j]) * f[i] - (t - x[i]) * f[i-1]) / (x[i] - x[i-j]);
+
+	float spline = f[4] - ((f[4] - directSteps) * bezier_reduce_factor);
+
+	// safety when stupid values are entered for x and y
+	if (spline > 1.0) return 1.0;
+	if (spline < 0.0) return 0.0;
+
+	return spline;
+}
+
+void app_nunchuk_configure(chuk_config *conf, throttle_config *throttle_conf) {
 	config = *conf;
+	throt_config = *throttle_conf;
+	
+	px[0] = 0.0;
+	px[1] = throt_config.x1_throttle;
+	px[2] = throt_config.x2_throttle;
+	px[3] = throt_config.x3_throttle;
+	px[4] = 1.0;
+	py[0] = 0.0;
+	py[1] = throt_config.y1_throttle;
+	py[2] = throt_config.y2_throttle;
+	py[3] = throt_config.y3_throttle;
+	py[4] = 1.0;
+	
+	nx[0] = 0.0;
+	nx[1] = throt_config.x1_neg_throttle;
+	nx[2] = throt_config.x2_neg_throttle;
+	nx[3] = throt_config.x3_neg_throttle;
+	nx[4] = 1.0;
+	ny[0] = 0.0;
+	ny[1] = throt_config.y1_neg_throttle;
+	ny[2] = throt_config.y2_neg_throttle;
+	ny[3] = throt_config.y3_neg_throttle;
+	ny[4] = 1.0;
 }
 
 void app_nunchuk_start(void) {
@@ -191,7 +252,7 @@ static THD_FUNCTION(output_thread, arg) {
 			continue;
 		}
 
-		if (chuck_d.bt_z && !was_z && config.ctrl_type == CHUK_CTRL_TYPE_CURRENT &&
+		if (chuck_d.bt_z && !was_z && (config.ctrl_type == CHUK_CTRL_TYPE_CURRENT || config.ctrl_type == CHUK_CTRL_TYPE_WATT) &&
 				fabsf(current_now) < MAX_CURR_DIFFERENCE) {
 			if (is_reverse) {
 				is_reverse = false;
@@ -206,6 +267,14 @@ static THD_FUNCTION(output_thread, arg) {
 
 		float out_val = app_nunchuk_get_decoded_chuk();
 		utils_deadband(&out_val, config.hyst, 1.0);
+		
+		if (throt_config.adjustable_throttle_enabled && out_val != 0.0){
+			if (out_val > 0.0) {
+				out_val = calculate_throttle_curve_chuk(px, py, throt_config.bezier_reduce_factor, out_val);
+			} else {
+				out_val = -calculate_throttle_curve_chuk(nx, ny, throt_config.bezier_neg_reduce_factor, -out_val);
+			}
+		}
 
 		// LEDs
 		float x_axis = ((float)chuck_d.js_x - 128.0) / 128.0;
@@ -277,8 +346,25 @@ static THD_FUNCTION(output_thread, arg) {
 				}
 			}
 
-			mc_interface_set_pid_speed(pid_rpm);
-
+			// NEW
+			switch (config.ctrl_type) {
+			case CHUK_CTRL_TYPE_CURRENT:
+			case CHUK_CTRL_TYPE_CURRENT_NOREV:
+				mc_interface_set_pid_speed(pid_rpm);
+				break;
+			case CHUK_CTRL_TYPE_WATT:
+			case CHUK_CTRL_TYPE_WATT_NOREV:
+				if (config.max_watt_enabled) {
+					mc_interface_set_pid_speed_and_watt(pid_rpm, config.max_watt);
+				} else {
+					mc_interface_set_pid_speed(pid_rpm);
+				}
+				break;
+			default:
+				break;
+			}
+			// END NEW
+			
 			// Send the same duty cycle to the other controllers
 			if (config.multi_esc) {
 				float duty = mc_interface_get_duty_cycle_now();
@@ -302,12 +388,42 @@ static THD_FUNCTION(output_thread, arg) {
 		was_pid = false;
 
 		float current = 0;
-
-		if (out_val >= 0.0) {
-			current = out_val * mcconf->l_current_max;
-		} else {
-			current = out_val * fabsf(mcconf->l_current_min);
+		
+		// NEW
+		switch (config.ctrl_type) {
+		case CHUK_CTRL_TYPE_CURRENT:
+		case CHUK_CTRL_TYPE_CURRENT_NOREV:
+			if (out_val >= 0.0) {
+				current = out_val * mcconf->l_current_max;
+			} else {
+				current = out_val * fabsf(mcconf->l_current_min);
+			}
+			break;
+		case CHUK_CTRL_TYPE_WATT:
+		case CHUK_CTRL_TYPE_WATT_NOREV:
+			if (out_val >= 0.0) {
+				if (config.max_watt_enabled) {
+					current = out_val * (config.max_watt / mc_interface_get_motor_voltage());
+				} else {
+					current = out_val * mc_interface_get_max_current_at_current_motor_voltage();
+				}
+				
+				float current_by_max_motor_current = out_val * mcconf->l_current_max * config.max_watt_ramp_factor;
+				if (current_by_max_motor_current < current){
+					current = current_by_max_motor_current;
+				}
+				
+				if (current > mcconf->l_current_max) {
+					current = mcconf->l_current_max;
+				}
+			} else {
+				current = out_val * fabsf(mcconf->l_current_min);
+			}
+			break;
+		default:
+			break;
 		}
+		// END NEW 
 
 		// Find lowest RPM and highest current
 		float rpm_local = mc_interface_get_rpm();

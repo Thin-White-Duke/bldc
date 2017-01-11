@@ -42,6 +42,7 @@ volatile int ADC_curr_norm_value[3];
 
 // Private variables
 static volatile mc_configuration m_conf;
+static volatile mc_configuration m_conf_original;
 static mc_fault_code m_fault_now;
 static int m_ignore_iterations;
 static volatile unsigned int m_cycles_running;
@@ -56,6 +57,9 @@ static volatile float m_amp_seconds_charged;
 static volatile float m_watt_seconds;
 static volatile float m_watt_seconds_charged;
 static volatile float m_position_set;
+// new
+static volatile float max_watt;
+static volatile int is_cruise_control_active;
 
 // Sampling variables
 #define ADC_SAMPLE_MAX_LEN		2000
@@ -91,6 +95,7 @@ static thread_t *sample_send_tp;
 
 void mc_interface_init(mc_configuration *configuration) {
 	m_conf = *configuration;
+	m_conf_original = *configuration;
 	m_fault_now = FAULT_CODE_NONE;
 	m_ignore_iterations = 0;
 	m_cycles_running = 0;
@@ -106,6 +111,8 @@ void mc_interface_init(mc_configuration *configuration) {
 	m_watt_seconds_charged = 0.0;
 	m_position_set = 0.0;
 	m_last_adc_duration_sample = 0.0;
+	max_watt = 1000.0;
+	is_cruise_control_active = 0;
 
 	m_sample_len = 1000;
 	m_sample_int = 1;
@@ -352,6 +359,35 @@ void mc_interface_set_pid_speed(float rpm) {
 	default:
 		break;
 	}
+}
+
+void mc_interface_set_pid_speed_and_watt(float rpm, float new_max_pid_watt){
+	if (mc_interface_try_input()) {
+		return;
+	}
+
+	switch (m_conf.motor_type) {
+	case MOTOR_TYPE_BLDC:
+	case MOTOR_TYPE_DC:
+		mcpwm_set_pid_speed_and_watt(rpm, new_max_pid_watt);
+		break;
+
+	case MOTOR_TYPE_FOC:
+		mcpwm_foc_set_pid_speed_and_watt(rpm, new_max_pid_watt);
+		break;
+
+	default:
+		break;
+	}
+}
+
+int mc_interface_get_cruise_control_status(void){
+	return is_cruise_control_active;
+}
+
+// true = active false = inactive
+void mc_interface_set_cruise_control_status(int status){
+	is_cruise_control_active = status;
 }
 
 void mc_interface_set_pid_pos(float pos) {
@@ -803,6 +839,34 @@ float mc_interface_get_pid_pos_now(void) {
 
 	return ret;
 }
+
+//new
+float mc_interface_get_motor_voltage(void) {
+	const float actual_duty = fabsf(mc_interface_get_duty_cycle_now());
+	if (actual_duty < m_conf.l_min_duty){
+		return GET_INPUT_VOLTAGE() * m_conf.l_min_duty;
+	}else {
+		return GET_INPUT_VOLTAGE() * actual_duty;	
+	}
+}
+
+float mc_interface_get_max_current_at_current_motor_voltage(void) {
+	const float input_voltage = GET_INPUT_VOLTAGE();
+	const float actual_duty = fabsf(mc_interface_get_duty_cycle_now());
+	if (actual_duty < m_conf.l_min_duty){
+		return (input_voltage * m_conf.l_in_current_max) / (input_voltage * m_conf.l_min_duty);
+	}else {
+		return (input_voltage * m_conf.l_in_current_max) / (input_voltage * actual_duty);
+	}
+	
+}
+// end new
+
+float mc_interface_get_max_watt(void) {
+	return max_watt;
+}
+
+
 
 float mc_interface_get_last_sample_adc_isr_duration(void) {
 	return m_last_adc_duration_sample;

@@ -59,7 +59,6 @@ static volatile bool is_running = false;
 static volatile float pid_rpm = 0;
 static volatile int mode_switch_pulses = 0;
 static volatile ppm_config config;
-static volatile throttle_config throt_config;
 static volatile int pulses_without_power = 0;
 
 //static volatile int count = 0;
@@ -68,16 +67,14 @@ static volatile float filter_buffer[RPM_FILTER_SAMPLES];
 static volatile int filter_ptr = 0;
 static volatile bool has_enough_pid_filter_data = false;
 
-static float px[5];
-static float py[5];
-static float nx[5];
-static float ny[5];
+static volatile float x[5];
+static volatile float y[5];
 
 // Private functions
 static void update(void *p);
 #endif
 
-float calculate_throttle_curve_ppm(float *x, float *y, float bezier_reduce_factor, float t) {
+float neville(float t) {
 	
 	float directSteps;
 	if (t < x[1]){
@@ -99,7 +96,7 @@ float calculate_throttle_curve_ppm(float *x, float *y, float bezier_reduce_facto
 		for (int i = 4; i >= j; i--)
 			f[i] = ( (t - x[i-j]) * f[i] - (t - x[i]) * f[i-1]) / (x[i] - x[i-j]);
 
-	float spline = f[4] - ((f[4] - directSteps) * bezier_reduce_factor);
+	float spline = f[4] - ((f[4] - directSteps) * config.bezier_reduce_factor);
 
 	// safety when stupid values are entered for x and y
 	if (spline > 1.0) return 1.0;
@@ -108,10 +105,9 @@ float calculate_throttle_curve_ppm(float *x, float *y, float bezier_reduce_facto
 	return spline;
 }
 
-void app_ppm_configure(ppm_config *conf, throttle_config *throttle_conf) {
+void app_ppm_configure(ppm_config *conf) {
 #if !SERVO_OUT_ENABLE
 	config = *conf;
-	throt_config = *throttle_conf;
 	pulses_without_power = 0;
 	
 	has_enough_pid_filter_data = false;
@@ -122,27 +118,16 @@ void app_ppm_configure(ppm_config *conf, throttle_config *throttle_conf) {
 		servodec_set_pulse_options(config.pulse_start, config.pulse_center, config.pulse_end, config.median_filter);
 	}
 	
-	px[0] = 0.0;
-	px[1] = throt_config.x1_throttle;
-	px[2] = throt_config.x2_throttle;
-	px[3] = throt_config.x3_throttle;
-	px[4] = 1.0;
-	py[0] = 0.0;
-	py[1] = throt_config.y1_throttle;
-	py[2] = throt_config.y2_throttle;
-	py[3] = throt_config.y3_throttle;
-	py[4] = 1.0;
-	
-	nx[0] = 0.0;
-	nx[1] = throt_config.x1_neg_throttle;
-	nx[2] = throt_config.x2_neg_throttle;
-	nx[3] = throt_config.x3_neg_throttle;
-	nx[4] = 1.0;
-	ny[0] = 0.0;
-	ny[1] = throt_config.y1_neg_throttle;
-	ny[2] = throt_config.y2_neg_throttle;
-	ny[3] = throt_config.y3_neg_throttle;
-	ny[4] = 1.0;
+	x[0] = 0.0;
+	x[1] = config.x1_throttle;
+	x[2] = config.x2_throttle;
+	x[3] = config.x3_throttle;
+	x[4] = 1.0;
+	y[0] = 0.0;
+	y[1] = config.y1_throttle;
+	y[2] = config.y2_throttle;
+	y[3] = config.y3_throttle;
+	y[4] = 1.0;
 	
 #else
 	(void)conf;
@@ -209,14 +194,9 @@ static THD_FUNCTION(ppm_thread, arg) {
 			
 			utils_deadband(&servo_val, config.hyst, 1.0);
 			
-			if (throt_config.adjustable_throttle_enabled && servo_val != 0.0){
-				if (servo_val > 0.0) {
-					servo_val = calculate_throttle_curve_ppm(px, py, throt_config.bezier_reduce_factor, servo_val);
-				} else {
-					servo_val = -calculate_throttle_curve_ppm(nx, ny, throt_config.bezier_neg_reduce_factor, -servo_val);
-				}
+			if (config.adjustable_throttle_enabled && servo_val > 0.0) {
+				servo_val = neville(servo_val);
 			}
-			
 			break;
 		}
 
@@ -339,10 +319,11 @@ static THD_FUNCTION(ppm_thread, arg) {
 						current = servo_val * mc_interface_get_max_current_at_current_motor_voltage();
 					}
 					
-					float current_by_max_motor_current = servo_val * mcconf->l_current_max * config.max_watt_ramp_factor;
-					
-					if (current_by_max_motor_current < current){
-						current = current_by_max_motor_current;
+					if (config.max_watt_ramp_by_current) {
+						float current_by_max_motor_current = servo_val * mcconf->l_current_max * config.max_watt_ramp_factor;
+						if (current_by_max_motor_current < current){
+							current = current_by_max_motor_current;
+						}
 					}
 					
 					if (current > mcconf->l_current_max) {
@@ -350,11 +331,8 @@ static THD_FUNCTION(ppm_thread, arg) {
 					}
 				}
 			} else {
-				
-				current_mode_brake = true;
-				
-				// brake as in current mode if not enabled. Calculating via Battery Voltage would brake far too hard
 				current = fabsf(servo_val * mcconf->l_current_min);
+				current_mode_brake = true;
 			}
 			if (servo_val < 0.001) {
 				pulses_without_power++;

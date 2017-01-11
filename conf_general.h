@@ -27,7 +27,7 @@
 
 // Firmware version
 #define FW_VERSION_MAJOR	2
-#define FW_VERSION_MINOR	18
+#define FW_VERSION_MINOR	52
 
 #include "datatypes.h"
 
@@ -38,7 +38,7 @@
 
 // Settings and parameters to override
 //#define VIN_R1				33000.0
-//#define VIN_R1				39200.0
+#define VIN_R1				39000.0
 //#define VIN_R2				2200.0
 //#define CURRENT_AMP_GAIN	10.0
 //#define CURRENT_SHUNT_RES	0.0005

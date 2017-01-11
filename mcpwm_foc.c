@@ -76,6 +76,7 @@ typedef struct {
 static volatile mc_configuration *m_conf;
 static volatile mc_state m_state;
 static volatile mc_control_mode m_control_mode;
+static volatile float max_pid_watt;
 static volatile motor_state_t m_motor_state;
 static volatile int m_curr0_sum;
 static volatile int m_curr1_sum;
@@ -193,6 +194,7 @@ void mcpwm_foc_init(volatile mc_configuration *configuration) {
 	m_conf = configuration;
 	m_state = MC_STATE_OFF;
 	m_control_mode = CONTROL_MODE_NONE;
+	max_pid_watt = 0;
 	m_curr0_sum = 0;
 	m_curr1_sum = 0;
 	m_curr_samples = 0;
@@ -519,6 +521,24 @@ void mcpwm_foc_set_duty_noramp(float dutyCycle) {
 void mcpwm_foc_set_pid_speed(float rpm) {
 	m_control_mode = CONTROL_MODE_SPEED;
 	m_speed_pid_set_rpm = rpm;
+	max_pid_watt = 0;
+
+	if (m_state != MC_STATE_RUNNING) {
+		m_state = MC_STATE_RUNNING;
+	}
+}
+
+/**
+ * Use PID rpm control. Note that this value has to be multiplied by half of
+ * the number of motor poles.
+ *
+ * @param rpm
+ * The electrical RPM goal value to use.
+ */
+void mcpwm_foc_set_pid_speed_and_watt(float rpm, float new_max_pid_watt) {
+	m_control_mode = CONTROL_MODE_SPEED;
+	m_speed_pid_set_rpm = rpm;
+	max_pid_watt = new_max_pid_watt;
 
 	if (m_state != MC_STATE_RUNNING) {
 		m_state = MC_STATE_RUNNING;
@@ -2138,9 +2158,29 @@ static void run_pid_control_speed(float dt) {
 
 	// Calculate output
 	float output = p_term + i_term + d_term;
-	utils_truncate_number(&output, -1.0, 1.0);
 
-	m_iq_set = output * m_conf->lo_current_max;
+	if (m_conf->s_pid_breaking_enabled) {
+		utils_truncate_number(&output, -1.0, 1.0);
+	} else {
+		utils_truncate_number(&output, 0.0, 1.0);
+	}
+
+	if (max_pid_watt != 0) {
+		const float actual_duty = m_motor_state.duty_now;
+
+		if (actual_duty < m_conf->l_min_duty){
+			m_iq_set = output * (max_pid_watt / fabsf(GET_INPUT_VOLTAGE() * m_conf->l_min_duty));
+		} else {
+			m_iq_set = output * (max_pid_watt / fabsf(GET_INPUT_VOLTAGE() * actual_duty));
+		}
+		
+		if(m_iq_set > m_conf->lo_current_max){
+			m_iq_set = m_conf->lo_current_max;
+		}
+		
+	} else {
+		m_iq_set = output * m_conf->lo_current_max;
+	}
 }
 
 static void stop_pwm_hw(void) {

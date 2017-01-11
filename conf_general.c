@@ -89,7 +89,7 @@ void conf_general_get_default_app_configuration(app_configuration *conf) {
 	conf->app_ppm_conf.multi_esc = APPCONF_PPM_MULTI_ESC;
 	conf->app_ppm_conf.tc = APPCONF_PPM_TC;
 	conf->app_ppm_conf.tc_max_diff = APPCONF_PPM_TC_MAX_DIFF;
-
+	
 	conf->app_adc_conf.ctrl_type = APPCONF_ADC_CTRL_TYPE;
 	conf->app_adc_conf.hyst = APPCONF_ADC_HYST;
 	conf->app_adc_conf.voltage_start = APPCONF_ADC_VOLTAGE_START;
@@ -118,7 +118,7 @@ void conf_general_get_default_app_configuration(app_configuration *conf) {
 	conf->app_chuk_conf.multi_esc = APPCONF_CHUK_MULTI_ESC;
 	conf->app_chuk_conf.tc = APPCONF_CHUK_TC;
 	conf->app_chuk_conf.tc_max_diff = APPCONF_CHUK_TC_MAX_DIFF;
-
+	
 	conf->app_nrf_conf.speed = APPCONF_NRF_SPEED;
 	conf->app_nrf_conf.power = APPCONF_NRF_POWER;
 	conf->app_nrf_conf.crc_type = APPCONF_NRF_CRC;
@@ -129,6 +129,35 @@ void conf_general_get_default_app_configuration(app_configuration *conf) {
 	conf->app_nrf_conf.address[1] = APPCONF_NRF_ADDR_B1;
 	conf->app_nrf_conf.address[2] = APPCONF_NRF_ADDR_B2;
 	conf->app_nrf_conf.send_crc_ack = APPCONF_NRF_SEND_CRC_ACK;
+	
+	//new config
+	conf->app_ppm_conf.pulse_center = APPCONF_PPM_PULSE_CENTER;
+	conf->app_ppm_conf.tc_offset = APPCONF_PPM_TC_OFFSET;
+	conf->app_ppm_conf.max_watt_enabled = APPCONF_MAX_WATT_ENABLED;
+	conf->app_ppm_conf.max_watt = APPCONF_MAX_WATT;
+	conf->app_ppm_conf.max_watt_ramp_factor = APPCONF_MAX_WATT_RAMP_FACTOR;
+	
+	conf->app_chuk_conf.tc_offset = APPCONF_CHUK_TC_OFFSET;
+	conf->app_chuk_conf.max_watt_enabled = APPCONF_MAX_WATT_ENABLED;
+	conf->app_chuk_conf.max_watt = APPCONF_MAX_WATT;
+	conf->app_chuk_conf.max_watt_ramp_factor = APPCONF_MAX_WATT_RAMP_FACTOR;
+	
+	conf->app_throttle_conf.adjustable_throttle_enabled = APPCONF_ADJUSTABLE_THROTTLE_ENABLED;
+	conf->app_throttle_conf.y1_throttle = APPCONF_Y1_THROTTLE;
+	conf->app_throttle_conf.y2_throttle = APPCONF_Y2_THROTTLE;
+	conf->app_throttle_conf.y3_throttle = APPCONF_Y3_THROTTLE;
+	conf->app_throttle_conf.x1_throttle = APPCONF_X1_THROTTLE;
+	conf->app_throttle_conf.x2_throttle = APPCONF_X2_THROTTLE;
+	conf->app_throttle_conf.x3_throttle = APPCONF_X3_THROTTLE;
+	conf->app_throttle_conf.bezier_reduce_factor = APPCONF_BEZIER_REDUCE_FACTOR;
+	conf->app_throttle_conf.y1_neg_throttle = APPCONF_Y1_THROTTLE;
+	conf->app_throttle_conf.y2_neg_throttle = APPCONF_Y2_THROTTLE;
+	conf->app_throttle_conf.y3_neg_throttle = APPCONF_Y3_THROTTLE;
+	conf->app_throttle_conf.x1_neg_throttle = APPCONF_X1_THROTTLE;
+	conf->app_throttle_conf.x2_neg_throttle = APPCONF_X2_THROTTLE;
+	conf->app_throttle_conf.x3_neg_throttle = APPCONF_X3_THROTTLE;
+	conf->app_throttle_conf.bezier_neg_reduce_factor = APPCONF_BEZIER_REDUCE_FACTOR;
+	//new config end
 }
 
 /**
@@ -224,6 +253,7 @@ void conf_general_get_default_mc_configuration(mc_configuration *conf) {
 	conf->s_pid_ki = MCCONF_S_PID_KI;
 	conf->s_pid_kd = MCCONF_S_PID_KD;
 	conf->s_pid_min_erpm = MCCONF_S_PID_MIN_RPM;
+	conf->s_pid_breaking_enabled = MCCONF_S_PID_BREAKING_ENABLED;
 
 	conf->p_pid_kp = MCCONF_P_PID_KP;
 	conf->p_pid_ki = MCCONF_P_PID_KI;

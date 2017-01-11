@@ -67,8 +67,11 @@ static void(*send_func)(unsigned char *data, unsigned int len) = 0;
 static void(*appdata_func)(unsigned char *data, unsigned int len) = 0;
 static disp_pos_mode display_position_mode;
 
+static uint8_t remote_Mode;
+
 void commands_init(void) {
 	chThdCreateStatic(detect_thread_wa, sizeof(detect_thread_wa), NORMALPRIO, detect_thread, NULL);
+	remote_Mode = 0;
 }
 
 /**
@@ -120,6 +123,8 @@ void commands_process_packet(unsigned char *data, unsigned int len) {
 	uint16_t flash_res;
 	uint32_t new_app_offset;
 	chuck_data chuck_d_tmp;
+	
+	bool sendActualSpeedMode = false;
 
 	packet_id = data[0];
 	data++;
@@ -320,7 +325,7 @@ void commands_process_packet(unsigned char *data, unsigned int len) {
 		mcconf.s_pid_ki = (float)buffer_get_int32(data, &ind) / 1000000.0;
 		mcconf.s_pid_kd = (float)buffer_get_int32(data, &ind) / 1000000.0;
 		mcconf.s_pid_min_erpm = (float)buffer_get_int32(data, &ind) / 1000.0;
-
+		
 		mcconf.p_pid_kp = (float)buffer_get_int32(data, &ind) / 1000000.0;
 		mcconf.p_pid_ki = (float)buffer_get_int32(data, &ind) / 1000000.0;
 		mcconf.p_pid_kd = (float)buffer_get_int32(data, &ind) / 1000000.0;
@@ -337,6 +342,10 @@ void commands_process_packet(unsigned char *data, unsigned int len) {
 		mcconf.m_current_backoff_gain = (float)buffer_get_float32(data, 1000000.0, &ind);
 		mcconf.m_encoder_counts = buffer_get_uint32(data, &ind);
 		mcconf.m_sensor_port_mode = data[ind++];
+		
+		// new config
+		mcconf.s_pid_breaking_enabled = data[ind++];
+		// new config end
 
 		conf_general_store_mc_configuration(&mcconf);
 		mc_interface_set_configuration(&mcconf);
@@ -425,7 +434,7 @@ void commands_process_packet(unsigned char *data, unsigned int len) {
 		buffer_append_int32(send_buffer, (int32_t)(mcconf.s_pid_ki * 1000000.0), &ind);
 		buffer_append_int32(send_buffer, (int32_t)(mcconf.s_pid_kd * 1000000.0), &ind);
 		buffer_append_int32(send_buffer, (int32_t)(mcconf.s_pid_min_erpm * 1000.0), &ind);
-
+		
 		buffer_append_int32(send_buffer, (int32_t)(mcconf.p_pid_kp * 1000000.0), &ind);
 		buffer_append_int32(send_buffer, (int32_t)(mcconf.p_pid_ki * 1000000.0), &ind);
 		buffer_append_int32(send_buffer, (int32_t)(mcconf.p_pid_kd * 1000000.0), &ind);
@@ -442,6 +451,10 @@ void commands_process_packet(unsigned char *data, unsigned int len) {
 		buffer_append_float32(send_buffer, mcconf.m_current_backoff_gain, 1000000.0, &ind);
 		buffer_append_uint32(send_buffer, mcconf.m_encoder_counts, &ind);
 		send_buffer[ind++] = mcconf.m_sensor_port_mode;
+		
+		// new config
+		send_buffer[ind++] = mcconf.s_pid_breaking_enabled;
+		// new config end
 
 		commands_send_packet(send_buffer, ind);
 		break;
@@ -470,7 +483,7 @@ void commands_process_packet(unsigned char *data, unsigned int len) {
 		appconf.app_ppm_conf.multi_esc = data[ind++];
 		appconf.app_ppm_conf.tc = data[ind++];
 		appconf.app_ppm_conf.tc_max_diff = (float)buffer_get_int32(data, &ind) / 1000.0;
-
+		
 		appconf.app_adc_conf.ctrl_type = data[ind++];
 		appconf.app_adc_conf.hyst = (float)buffer_get_int32(data, &ind) / 1000.0;
 		appconf.app_adc_conf.voltage_start = (float)buffer_get_int32(data, &ind) / 1000.0;
@@ -499,7 +512,7 @@ void commands_process_packet(unsigned char *data, unsigned int len) {
 		appconf.app_chuk_conf.multi_esc = data[ind++];
 		appconf.app_chuk_conf.tc = data[ind++];
 		appconf.app_chuk_conf.tc_max_diff = buffer_get_float32(data, 1000.0, &ind);
-
+		
 		appconf.app_nrf_conf.speed = data[ind++];
 		appconf.app_nrf_conf.power = data[ind++];
 		appconf.app_nrf_conf.crc_type = data[ind++];
@@ -509,7 +522,37 @@ void commands_process_packet(unsigned char *data, unsigned int len) {
 		memcpy(appconf.app_nrf_conf.address, data + ind, 3);
 		ind += 3;
 		appconf.app_nrf_conf.send_crc_ack = data[ind++];
-
+		
+		// new config
+		appconf.app_ppm_conf.pulse_center = (float)buffer_get_int32(data, &ind) / 1000.0;
+		
+		appconf.app_ppm_conf.tc_offset = (float)buffer_get_int32(data, &ind) / 1000.0;
+		appconf.app_ppm_conf.max_watt_enabled = data[ind++];
+		appconf.app_ppm_conf.max_watt = (float)buffer_get_int32(data, &ind) / 1000.0;
+		appconf.app_ppm_conf.max_watt_ramp_factor = (float)buffer_get_int32(data, &ind) / 1000.0;
+		
+		appconf.app_chuk_conf.tc_offset = (float)buffer_get_int32(data, &ind) / 1000.0;
+		appconf.app_chuk_conf.max_watt_enabled = data[ind++];
+		appconf.app_chuk_conf.max_watt = (float)buffer_get_int32(data, &ind) / 1000.0;
+		appconf.app_chuk_conf.max_watt_ramp_factor = (float)buffer_get_int32(data, &ind) / 1000.0;
+		
+		appconf.app_throttle_conf.adjustable_throttle_enabled = data[ind++];
+		appconf.app_throttle_conf.y1_throttle = (float)buffer_get_int32(data, &ind) / 1000.0;
+		appconf.app_throttle_conf.y2_throttle = (float)buffer_get_int32(data, &ind) / 1000.0;
+		appconf.app_throttle_conf.y3_throttle = (float)buffer_get_int32(data, &ind) / 1000.0;
+		appconf.app_throttle_conf.x1_throttle = (float)buffer_get_int32(data, &ind) / 1000.0;
+		appconf.app_throttle_conf.x2_throttle = (float)buffer_get_int32(data, &ind) / 1000.0;
+		appconf.app_throttle_conf.x3_throttle = (float)buffer_get_int32(data, &ind) / 1000.0;
+		appconf.app_throttle_conf.bezier_reduce_factor = (float)buffer_get_int32(data, &ind) / 100.0;
+		appconf.app_throttle_conf.y1_neg_throttle = (float)buffer_get_int32(data, &ind) / 1000.0;
+		appconf.app_throttle_conf.y2_neg_throttle = (float)buffer_get_int32(data, &ind) / 1000.0;
+		appconf.app_throttle_conf.y3_neg_throttle = (float)buffer_get_int32(data, &ind) / 1000.0;
+		appconf.app_throttle_conf.x1_neg_throttle = (float)buffer_get_int32(data, &ind) / 1000.0;
+		appconf.app_throttle_conf.x2_neg_throttle = (float)buffer_get_int32(data, &ind) / 1000.0;
+		appconf.app_throttle_conf.x3_neg_throttle = (float)buffer_get_int32(data, &ind) / 1000.0;
+		appconf.app_throttle_conf.bezier_neg_reduce_factor = (float)buffer_get_int32(data, &ind) / 100.0;
+		// new config end
+		
 		conf_general_store_app_configuration(&appconf);
 		app_set_configuration(&appconf);
 		timeout_configure(appconf.timeout_msec, appconf.timeout_brake_current);
@@ -549,7 +592,7 @@ void commands_process_packet(unsigned char *data, unsigned int len) {
 		send_buffer[ind++] = appconf.app_ppm_conf.multi_esc;
 		send_buffer[ind++] = appconf.app_ppm_conf.tc;
 		buffer_append_int32(send_buffer, (int32_t)(appconf.app_ppm_conf.tc_max_diff * 1000.0), &ind);
-
+		
 		send_buffer[ind++] = appconf.app_adc_conf.ctrl_type;
 		buffer_append_int32(send_buffer, (int32_t)(appconf.app_adc_conf.hyst * 1000.0), &ind);
 		buffer_append_int32(send_buffer, (int32_t)(appconf.app_adc_conf.voltage_start * 1000.0), &ind);
@@ -578,7 +621,7 @@ void commands_process_packet(unsigned char *data, unsigned int len) {
 		send_buffer[ind++] = appconf.app_chuk_conf.multi_esc;
 		send_buffer[ind++] = appconf.app_chuk_conf.tc;
 		buffer_append_int32(send_buffer, (int32_t)(appconf.app_chuk_conf.tc_max_diff * 1000.0), &ind);
-
+		
 		send_buffer[ind++] = appconf.app_nrf_conf.speed;
 		send_buffer[ind++] = appconf.app_nrf_conf.power;
 		send_buffer[ind++] = appconf.app_nrf_conf.crc_type;
@@ -588,7 +631,37 @@ void commands_process_packet(unsigned char *data, unsigned int len) {
 		memcpy(send_buffer + ind, appconf.app_nrf_conf.address, 3);
 		ind += 3;
 		send_buffer[ind++] = appconf.app_nrf_conf.send_crc_ack;
-
+		
+		// new config
+		buffer_append_int32(send_buffer, (int32_t)(appconf.app_ppm_conf.pulse_center * 1000.0), &ind);
+		
+		buffer_append_int32(send_buffer, (int32_t)(appconf.app_ppm_conf.tc_offset * 1000.0), &ind);
+		send_buffer[ind++] = appconf.app_ppm_conf.max_watt_enabled;
+		buffer_append_int32(send_buffer, (int32_t)(appconf.app_ppm_conf.max_watt * 1000.0), &ind);
+		buffer_append_int32(send_buffer, (int32_t)(appconf.app_ppm_conf.max_watt_ramp_factor * 1000.0), &ind);
+		
+		buffer_append_int32(send_buffer, (int32_t)(appconf.app_chuk_conf.tc_offset * 1000.0), &ind);
+		send_buffer[ind++] = appconf.app_chuk_conf.max_watt_enabled;
+		buffer_append_int32(send_buffer, (int32_t)(appconf.app_chuk_conf.max_watt * 1000.0), &ind);
+		buffer_append_int32(send_buffer, (int32_t)(appconf.app_chuk_conf.max_watt_ramp_factor * 1000.0), &ind);
+		
+		send_buffer[ind++] = appconf.app_throttle_conf.adjustable_throttle_enabled;
+		buffer_append_int32(send_buffer, (int32_t)(appconf.app_throttle_conf.y1_throttle * 1000.0), &ind);
+		buffer_append_int32(send_buffer, (int32_t)(appconf.app_throttle_conf.y2_throttle * 1000.0), &ind);
+		buffer_append_int32(send_buffer, (int32_t)(appconf.app_throttle_conf.y3_throttle * 1000.0), &ind);
+		buffer_append_int32(send_buffer, (int32_t)(appconf.app_throttle_conf.x1_throttle * 1000.0), &ind);
+		buffer_append_int32(send_buffer, (int32_t)(appconf.app_throttle_conf.x2_throttle * 1000.0), &ind);
+		buffer_append_int32(send_buffer, (int32_t)(appconf.app_throttle_conf.x3_throttle * 1000.0), &ind);
+		buffer_append_int32(send_buffer, (int32_t)(appconf.app_throttle_conf.bezier_reduce_factor * 100.0), &ind);
+		buffer_append_int32(send_buffer, (int32_t)(appconf.app_throttle_conf.y1_neg_throttle * 1000.0), &ind);
+		buffer_append_int32(send_buffer, (int32_t)(appconf.app_throttle_conf.y2_neg_throttle * 1000.0), &ind);
+		buffer_append_int32(send_buffer, (int32_t)(appconf.app_throttle_conf.y3_neg_throttle * 1000.0), &ind);
+		buffer_append_int32(send_buffer, (int32_t)(appconf.app_throttle_conf.x1_neg_throttle * 1000.0), &ind);
+		buffer_append_int32(send_buffer, (int32_t)(appconf.app_throttle_conf.x2_neg_throttle * 1000.0), &ind);
+		buffer_append_int32(send_buffer, (int32_t)(appconf.app_throttle_conf.x3_neg_throttle * 1000.0), &ind);
+		buffer_append_int32(send_buffer, (int32_t)(appconf.app_throttle_conf.bezier_neg_reduce_factor * 100.0), &ind);
+		// end new config
+		
 		commands_send_packet(send_buffer, ind);
 		break;
 
@@ -788,36 +861,222 @@ void commands_process_packet(unsigned char *data, unsigned int len) {
 			appdata_func(data, len);
 		}
 		break;
-
-	case COMM_GET_LIMITS:
-    mcconf = *mc_interface_get_configuration();
-
+		
+	case COMM_SET_SPEED_MODE:
 		ind = 0;
-		send_buffer[ind++] = COMM_GET_LIMITS;
+		uint8_t new_remote_Mode = data[ind++];
+		uint8_t new_speed_mode_int = data[ind++];
+		float watt = buffer_get_float16(data, 1, &ind);
+		float cur_mot_max = buffer_get_float16(data, 10, &ind);
+		float cur_bat_max = buffer_get_float16(data, 10, &ind);
+		float cur_mot_min = buffer_get_float16(data, 10, &ind);
+		float cur_bat_min = buffer_get_float16(data, 10, &ind);
+		float max_erpm = buffer_get_float16(data, 0.1, &ind);
 
-		buffer_append_float32(send_buffer, mcconf.l_current_max, 1000.0, &ind);
-		buffer_append_float32(send_buffer, mcconf.l_current_min, 1000.0, &ind);
-		buffer_append_float32(send_buffer, mcconf.l_in_current_max, 1000.0, &ind);
-		buffer_append_float32(send_buffer, mcconf.l_in_current_min, 1000.0, &ind);
-		buffer_append_float32(send_buffer, mcconf.l_abs_current_max, 1000.0, &ind);
+		appconf = *app_get_configuration();
 
-		buffer_append_float32(send_buffer, mcconf.l_min_vin, 1000.0, &ind);
-		buffer_append_float32(send_buffer, mcconf.l_max_vin, 1000.0, &ind);
-		buffer_append_float32(send_buffer, mcconf.l_battery_cut_start, 1000.0, &ind);
-		buffer_append_float32(send_buffer, mcconf.l_battery_cut_end, 1000.0, &ind);
+		if (appconf.app_to_use == APP_PPM_UART || appconf.app_to_use == APP_PPM) {
 
-		buffer_append_float32(send_buffer, mcconf.l_temp_fet_start, 1000.0, &ind);
-		buffer_append_float32(send_buffer, mcconf.l_temp_fet_end, 1000.0, &ind);
-		buffer_append_float32(send_buffer, mcconf.l_temp_motor_start, 1000.0, &ind);
-		buffer_append_float32(send_buffer, mcconf.l_temp_motor_end, 1000.0, &ind);
+			app_configuration saved_appconf;
+		
+			conf_general_read_app_configuration(&saved_appconf);
 
-		buffer_append_float32(send_buffer, mcconf.l_max_duty, 1000000.0, &ind);
+			mcconf = *mc_interface_get_configuration();
+	
+			mc_configuration saved_mcconf;
+			// gett base settings for motor
+			conf_general_read_mc_configuration(&saved_mcconf);
 
-		commands_send_packet(send_buffer, ind);
+			appconf.app_ppm_conf.max_watt_enabled = saved_appconf.app_ppm_conf.max_watt_enabled;
+			appconf.app_ppm_conf.ctrl_type = saved_appconf.app_ppm_conf.ctrl_type;
+			appconf.app_ppm_conf.max_watt = saved_appconf.app_ppm_conf.max_watt;
+	
+			mcconf.l_current_max = saved_mcconf.l_current_max;
+			mcconf.l_current_min = saved_mcconf.l_current_min;
+			mcconf.l_in_current_max = saved_mcconf.l_in_current_max;
+			mcconf.l_in_current_min = saved_mcconf.l_in_current_min;
+			mcconf.l_max_erpm = saved_mcconf.l_max_erpm;
+		
+			switch (new_speed_mode_int) {
+			case PPM_CTRL_TYPE_PID_NOACCELERATION:
+				appconf.app_ppm_conf.max_watt_enabled = true;
+			case PPM_CTRL_TYPE_CURRENT:
+			case PPM_CTRL_TYPE_CURRENT_NOREV:
+			case PPM_CTRL_TYPE_CURRENT_NOREV_BRAKE:
+			case PPM_CTRL_TYPE_DUTY:
+			case PPM_CTRL_TYPE_DUTY_NOREV:
+			case PPM_CTRL_TYPE_PID:
+			case PPM_CTRL_TYPE_PID_NOREV:
+			case PPM_CTRL_TYPE_WATT_NOREV_BRAKE:
+				if (!appconf.send_can_status) {
+					appconf.app_ppm_conf.ctrl_type = new_speed_mode_int;
+				}
+				if (watt >= 50.0 && watt <= 5000.0) appconf.app_ppm_conf.max_watt = watt;				
+				
+				if (cur_mot_max >= mcconf.cc_min_current && cur_mot_max <= 200) mcconf.l_current_max = cur_mot_max;
+				
+				if (cur_bat_max >= mcconf.cc_min_current && cur_bat_max <= 200) mcconf.l_in_current_max = cur_bat_max;
+				
+				if (cur_mot_min <= -mcconf.cc_min_current && cur_mot_min >= -200) mcconf.l_current_min = cur_mot_min;
+				
+				if (cur_bat_min <= -mcconf.cc_min_current && cur_bat_min >= -200) mcconf.l_in_current_min = cur_bat_min;
+
+				if (max_erpm >= 0 && max_erpm <= 100000.0) {
+					appconf.app_ppm_conf.pid_max_erpm = max_erpm;
+					appconf.app_ppm_conf.rpm_lim_end = max_erpm;
+					appconf.app_ppm_conf.rpm_lim_start = max_erpm - ((int16_t)(max_erpm / 25)); // 4% off
+				}
+
+				remote_Mode = new_remote_Mode;
+				break;
+			default:
+				//only the basic settings which are defined by the bldc-tool
+				remote_Mode = 0;
+				break;
+			}
+			if (!appconf.send_can_status) {
+				sendActualSpeedMode = true;
+			
+				ind = 0;
+				// send to all others
+				uint8_t send_buffer_can[PACKET_MAX_PL_LEN];
+		
+				send_buffer_can[ind++] = packet_id;
+				for(unsigned int i = 0; i < len; i++){
+					send_buffer_can[ind++] = data[i];
+				}
+			
+				for (int i = 0;i < CAN_STATUS_MSGS_TO_STORE;i++) {
+					can_status_msg *msg = comm_can_get_status_msg_index(i);
+
+					if (msg->id >= 0 && UTILS_AGE_S(msg->rx_time) < 1) {
+						comm_can_send_buffer(msg->id, send_buffer_can, len + 1, false);
+					}
+				}
+			}
+		
+			mc_interface_set_configuration(&mcconf);
+			app_set_configuration(&appconf);		
+		
+			timeout_configure(appconf.timeout_msec, appconf.timeout_brake_current);
+				
+			timeout_reset();
+		}
+		
+		break;
+	case COMM_CHANGE_SPEED_MODE:
+/*
+		ind = 0;
+
+		app_configuration saved_appconf2;
+		
+		conf_general_read_app_configuration(&saved_appconf2);
+		
+		appconf = *app_get_configuration();
+		
+		appconf.app_ppm_conf.max_watt_enabled = saved_appconf2.app_ppm_conf.max_watt_enabled;
+		appconf.app_ppm_conf.ctrl_type = saved_appconf2.app_ppm_conf.ctrl_type;
+		appconf.app_ppm_conf.max_watt = saved_appconf2.app_ppm_conf.max_watt;
+		
+		mcconf = *mc_interface_get_configuration();
+		
+		mc_configuration saved_mcconf2;
+		// gett base settings for motor
+		conf_general_read_mc_configuration(&saved_mcconf2);
+		
+		mcconf.l_current_max = saved_mcconf2.l_current_max;
+		mcconf.l_in_current_max = saved_mcconf2.l_in_current_max;
+		
+		if (appconf.app_to_use == APP_PPM_UART || appconf.app_to_use == APP_PPM) {
+			if (appconf.app_ppm_conf.ctrl_type == PPM_CTRL_TYPE_WATT_NOREV_BRAKE) {
+				appconf.app_ppm_conf.ctrl_type = PPM_CTRL_TYPE_PID_NOACCELERATION;
+				float watt = 250 / 0.9;
+				if (watt >= 50.0 && watt <= 5000.0) {	
+					appconf.app_ppm_conf.max_watt_enabled = true;
+					appconf.app_ppm_conf.max_watt = watt;
+				} else {
+					appconf.app_ppm_conf.max_watt = 250 / 0.9; // default is 250 watt / 90 % efficiency
+				}
+			} else if (appconf.app_ppm_conf.ctrl_type == PPM_CTRL_TYPE_PID_NOACCELERATION) {
+				appconf.app_ppm_conf.ctrl_type = PPM_CTRL_TYPE_WATT_NOREV_BRAKE;
+			*//*} else if (new_speed_mode_int == PPM_CTRL_TYPE_CURRENT_NOREV_BRAKE) {
+				appconf.app_ppm_conf.ctrl_type = new_speed_mode_int;
+				
+				if (current_motor >= mcconf.cc_min_current && current_motor <= mcconf.l_current_max){
+					mcconf.l_current_max = current_motor;
+				}
+				
+				if (current_battery >= mcconf.cc_min_current && current_battery <= mcconf.l_in_current_max){
+					mcconf.l_in_current_max = current_battery;
+				}*/
+/*
+			} else if (appconf.app_ppm_conf.ctrl_type == PPM_CTRL_TYPE_WATT_NOREV_BRAKE) {
+				appconf.app_ppm_conf.ctrl_type = PPM_CTRL_TYPE_CURRENT_NOREV_BRAKE;
+				//currents will be the default values
+			} else{
+				//only the basic settings which are defined by the bldc-tool
+			}
+		}
+		
+		mc_interface_set_configuration(&mcconf);
+		app_set_configuration(&appconf);
+		timeout_configure(appconf.timeout_msec, appconf.timeout_brake_current);
+
+		timeout_reset();
+		sendActualSpeedMode = true;
+*/
+		break;
+	case COMM_GET_SPEED_MODE:
+		appconf = *app_get_configuration();
+		mcconf = *mc_interface_get_configuration();
+		
+		sendActualSpeedMode = true;
+		break;
+	case COMM_SET_CURRENT_CONF_AS_DEFAULT:
+		if (!appconf.send_can_status) {
+			sendActualSpeedMode = true;
+		
+			ind = 0;
+			// send to all others
+			uint8_t send_buffer_can[PACKET_MAX_PL_LEN];
+	
+			send_buffer_can[ind++] = packet_id;
+		
+			for (int i = 0;i < CAN_STATUS_MSGS_TO_STORE;i++) {
+				can_status_msg *msg = comm_can_get_status_msg_index(i);
+
+				if (msg->id >= 0 && UTILS_AGE_S(msg->rx_time) < 1) {
+					comm_can_send_buffer(msg->id, send_buffer_can, len + 1, false);
+				}
+			}
+		}
+		mcconf = *mc_interface_get_configuration();
+
+		appconf = *app_get_configuration();
+
+		conf_general_store_mc_configuration(&mcconf);
+
+		conf_general_store_app_configuration(&appconf);
+		
+		remote_Mode = 0;
 		break;
 
 	default:
 		break;
+	}
+
+	if (sendActualSpeedMode) {
+		ind = 0;
+		send_buffer[ind++] = COMM_GET_SPEED_MODE;
+		send_buffer[ind++] = remote_Mode;
+		send_buffer[ind++] = appconf.app_ppm_conf.ctrl_type;
+		buffer_append_int16(send_buffer, (int16_t) appconf.app_ppm_conf.max_watt, &ind);
+		buffer_append_int16(send_buffer, (int16_t) (mcconf.l_current_max * 10), &ind);
+		buffer_append_int16(send_buffer, (int16_t) (mcconf.l_in_current_max * 10), &ind);
+		buffer_append_int16(send_buffer, (int16_t) (mcconf.l_current_min * 10), &ind);
+		buffer_append_int16(send_buffer, (int16_t) (mcconf.l_in_current_min * 10), &ind);
+		buffer_append_int16(send_buffer, (int16_t) (mcconf.l_max_erpm / 10), &ind);
+		commands_send_packet(send_buffer, ind);
 	}
 }
 

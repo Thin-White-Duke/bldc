@@ -39,6 +39,7 @@
 static volatile systime_t last_update_time;
 static volatile float servo_pos[SERVO_NUM];
 static volatile float pulse_start = 1.0;
+static volatile float pulse_center = 1.5;
 static volatile float pulse_end = 2.0;
 static volatile float last_len_received[SERVO_NUM];
 static volatile bool use_median_filter = false;
@@ -68,8 +69,16 @@ static void icuwidthcb(ICUDriver *icup) {
 	}
 
 	if (len >= 0.0) {
+		float len_to_center = len + pulse_start - pulse_center;
+
 		if (use_median_filter) {
-			float c = (len * 2.0 - len_set) / len_set;
+			float c;
+			if (len_to_center >= 0.0) {
+				c = (1.0 / (pulse_end - pulse_center)) * len_to_center;
+			} else {
+				c = (1.0 / (pulse_center - pulse_start)) * len_to_center;
+			}
+			//float c = (len * 2.0 - len_set) / len_set;
 			static float c1 = 0.5;
 			static float c2 = 0.5;
 			float med = utils_middle_of_3(c, c1, c2);
@@ -79,7 +88,12 @@ static void icuwidthcb(ICUDriver *icup) {
 
 			servo_pos[0] = med;
 		} else {
-			servo_pos[0] = (len * 2.0 - len_set) / len_set;
+			if (len_to_center >= 0.0) {
+				servo_pos[0] = (1 / (pulse_end - pulse_center)) * len_to_center;
+			} else {
+				servo_pos[0] = (1 / (pulse_center  - pulse_start)) * len_to_center;
+			}
+			//servo_pos[0] = (len * 2.0 - len_set) / len_set;
 		}
 
 		last_update_time = chVTGetSystemTime();
@@ -135,8 +149,9 @@ void servodec_init(void (*d_func)(void)) {
  * @param end
  * he amount of milliseconds the pulse ends at (default is 2.0)
  */
-void servodec_set_pulse_options(float start, float end, bool median_filter) {
+void servodec_set_pulse_options(float start, float center, float end, bool median_filter) {
 	pulse_start = start;
+	pulse_center = center;
 	pulse_end = end;
 	use_median_filter = median_filter;
 }
