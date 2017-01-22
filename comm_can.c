@@ -182,6 +182,11 @@ static THD_FUNCTION(cancom_process_thread, arg) {
 						mc_interface_set_pid_speed((float)buffer_get_int32(rxmsg.data8, &ind));
 						timeout_reset();
 						break;
+					case CAN_PACKET_SET_WATT:
+						ind = 0;
+						mc_interface_set_watt((float)buffer_get_int32(rxmsg.data8, &ind));
+						timeout_reset();
+						break;
 						
 					case CAN_PACKET_SET_RPM_AND_WATT:
 						ind = 0;
@@ -423,6 +428,13 @@ void comm_can_set_current_brake(uint8_t controller_id, float current) {
 	uint8_t buffer[4];
 	buffer_append_int32(buffer, (int32_t)(current * 1000.0), &send_index);
 	comm_can_transmit(controller_id | ((uint32_t)CAN_PACKET_SET_CURRENT_BRAKE << 8), buffer, send_index);
+}
+
+void comm_can_set_watt(uint8_t controller_id, float watt) {
+	int32_t send_index = 0;
+	uint8_t buffer[4];
+	buffer_append_int32(buffer, (int32_t)watt, &send_index);
+	comm_can_transmit(controller_id | ((uint32_t)CAN_PACKET_SET_WATT << 8), buffer, send_index);
 }
 
 void comm_can_set_rpm(uint8_t controller_id, float rpm) {

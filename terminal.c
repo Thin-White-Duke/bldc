@@ -29,6 +29,7 @@
 #include "mcpwm_foc.h"
 #include "mc_interface.h"
 #include "commands.h"
+#include "app.h"
 #include "hw.h"
 #include "comm_can.h"
 #include "utils.h"
@@ -79,7 +80,7 @@ void terminal_process_string(char *str) {
 	} else if (strcmp(argv[0], "mem") == 0) {
 		size_t n, size;
 		n = chHeapStatus(NULL, &size);
-		commands_printf("core free memory : %u bytes", chCoreGetStatusX());
+		commands_printf("core free 	ory : %u bytes", chCoreGetStatusX());
 		commands_printf("heap fragments   : %u", n);
 		commands_printf("heap free total  : %u bytes\n", size);
 	} else if (strcmp(argv[0], "threads") == 0) {
@@ -98,6 +99,27 @@ void terminal_process_string(char *str) {
 		commands_printf("");
 	} else if (strcmp(argv[0], "fault") == 0) {
 		commands_printf("%s\n", mc_interface_fault_to_string(mc_interface_get_fault()));
+	} else if (strcmp(argv[0], "faulta") == 0) {
+		if (fault_vec_write == 0) {
+		    commands_printf("No faults");
+		} else {
+		    commands_printf("Fault: %s\nID: %i\nCurrent: %.1f\nCurrent filtered: %.1f\nVoltage: %.2f\nDuty: %.2f\nRPM: %.1f\nTacho: %d\nCycles running: %d\nTIM duty: %d\nTIM val samp: %d\nTIM current samp: %d\nTIM top: %d\nComm step: %d\nTemperature: %.2f",
+			mc_interface_fault_to_string(fault_vec[fault_vec_write - 1].fault),
+			app_get_configuration()->controller_id,
+			(double)fault_vec[fault_vec_write - 1].current, 
+			(double)fault_vec[fault_vec_write - 1].current_filtered, 
+			(double)fault_vec[fault_vec_write - 1].voltage, 
+			(double)fault_vec[fault_vec_write - 1].duty, 
+			(double)fault_vec[fault_vec_write - 1].rpm, 
+			fault_vec[fault_vec_write - 1].tacho,
+			fault_vec[fault_vec_write - 1].cycles_running,
+			(int)((float)fault_vec[fault_vec_write - 1].tim_top * fault_vec[fault_vec_write - 1].duty),
+			fault_vec[fault_vec_write - 1].tim_val_samp,
+			fault_vec[fault_vec_write - 1].tim_current_samp,
+			fault_vec[fault_vec_write - 1].tim_top,
+			fault_vec[fault_vec_write - 1].comm_step,
+			(double)fault_vec[fault_vec_write - 1].temperature);
+		}
 	} else if (strcmp(argv[0], "faults") == 0) {
 		if (fault_vec_write == 0) {
 			commands_printf("No faults registered since startup\n");
@@ -217,7 +239,36 @@ void terminal_process_string(char *str) {
 				commands_printf("Cruise Control     : %.0f", (double)msg->cruise_control_status);
 			}
 		}
-	} else if (strcmp(argv[0], "foc_encoder_detect") == 0) {
+	} else if (strcmp(argv[0], "can_member") == 0) {
+		char controllerIds[100] = "CAN:\n";
+		for (int i = 0;i < CAN_STATUS_MSGS_TO_STORE;i++) {
+			can_status_msg *msg = comm_can_get_status_msg_index(i);
+
+			if (msg->id >= 0 && UTILS_AGE_S(msg->rx_time) < 1.0) {
+				char idArray[5];
+				sprintf(idArray, "%i\n", msg->id);
+				strcat(controllerIds, idArray);
+			}
+		}
+		commands_printf(controllerIds);
+	} else if (strcmp(argv[0], "can_erpms") == 0) {
+		char controllerIds[100] = "CAN ERPMs:\n";
+
+		char rpmArrayMaster[15];
+		sprintf(rpmArrayMaster, "M %6.2f\n", (double)mc_interface_get_rpm());
+		strcat(controllerIds, rpmArrayMaster);
+		
+		for (int i = 0;i < CAN_STATUS_MSGS_TO_STORE;i++) {
+			can_status_msg *msg = comm_can_get_status_msg_index(i);
+
+			if (msg->id >= 0 && UTILS_AGE_S(msg->rx_time) < 1.0) {
+				char rpmArray[15];
+				sprintf(rpmArray, "%i %6.2f\n", msg->id, (double)(msg->rpm));
+				strcat(controllerIds, rpmArray);
+			}
+		}
+		commands_printf(controllerIds);
+	}else if (strcmp(argv[0], "foc_encoder_detect") == 0) {
 		if (argc == 2) {
 			float current = -1.0;
 			sscanf(argv[1], "%f", &current);

@@ -635,6 +635,24 @@ void mcpwm_set_current(float current) {
 }
 
 /**
+ * Use current control and specify a goal current to use. The sign determines
+ * the direction of the torque.
+ *
+ * @param current
+ * The current to use.
+ */
+void mcpwm_set_current_without_switchoff(float current) {
+	utils_truncate_number(&current, conf->lo_current_min, conf->lo_current_max);
+
+	control_mode = CONTROL_MODE_CURRENT;
+	current_set = current;
+
+	if (state != MC_STATE_RUNNING) {
+		set_duty_cycle_hl(SIGN(current) * conf->l_min_duty);
+	}
+}
+
+/**
  * Brake the motor with a desired current. Absolute values less than
  * conf->cc_min_current will release the motor.
  *
@@ -648,6 +666,37 @@ void mcpwm_set_brake_current(float current) {
 		return;
 	}
 
+	utils_truncate_number(&current, -fabsf(conf->lo_current_min), fabsf(conf->lo_current_min));
+
+	control_mode = CONTROL_MODE_CURRENT_BRAKE;
+	current_set = current;
+
+	if (state != MC_STATE_RUNNING && state != MC_STATE_FULL_BRAKE) {
+		// In case the motor is already spinning, set the state to running
+		// so that it can be ramped down before the full brake is applied.
+		if (conf->motor_type == MOTOR_TYPE_DC) {
+			if (fabsf(dutycycle_now) > 0.1) {
+				state = MC_STATE_RUNNING;
+			} else {
+				full_brake_ll();
+			}
+		} else {
+			if (fabsf(rpm_now) > conf->l_max_erpm_fbrake) {
+				state = MC_STATE_RUNNING;
+			} else {
+				full_brake_ll();
+			}
+		}
+	}
+}
+
+/**
+ * Brake the motor with a desired current.
+ *
+ * @param current
+ * The current to use. Positive and negative values give the same effect.
+ */
+void mcpwm_set_brake_current_without_switchoff(float current) {
 	utils_truncate_number(&current, -fabsf(conf->lo_current_min), fabsf(conf->lo_current_min));
 
 	control_mode = CONTROL_MODE_CURRENT_BRAKE;

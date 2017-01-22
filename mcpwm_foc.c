@@ -588,6 +588,24 @@ void mcpwm_foc_set_current(float current) {
 }
 
 /**
+ * Use current control and specify a goal current to use. The sign determines
+ * the direction of the torque.
+ *
+ * @param current
+ * The current to use.
+ */
+void mcpwm_foc_set_current_without_switchoff(float current) {
+	utils_truncate_number(&current, m_conf->lo_current_min, m_conf->lo_current_max);
+
+	m_control_mode = CONTROL_MODE_CURRENT;
+	m_iq_set = current;
+
+	if (m_state != MC_STATE_RUNNING) {
+		m_state = MC_STATE_RUNNING;
+	}
+}
+
+/**
  * Brake the motor with a desired current. Absolute values less than
  * conf->cc_min_current will release the motor.
  *
@@ -602,6 +620,23 @@ void mcpwm_foc_set_brake_current(float current) {
 		return;
 	}
 
+	utils_truncate_number(&current, m_conf->lo_current_min, m_conf->lo_current_max);
+
+	m_control_mode = CONTROL_MODE_CURRENT_BRAKE;
+	m_iq_set = current;
+
+	if (m_state != MC_STATE_RUNNING) {
+		m_state = MC_STATE_RUNNING;
+	}
+}
+
+/**
+ * Brake the motor with a desired current.
+ *
+ * @param current
+ * The current to use. Positive and negative values give the same effect.
+ */
+void mcpwm_foc_set_brake_current_without_switchoff(float current) {
 	utils_truncate_number(&current, m_conf->lo_current_min, m_conf->lo_current_max);
 
 	m_control_mode = CONTROL_MODE_CURRENT_BRAKE;

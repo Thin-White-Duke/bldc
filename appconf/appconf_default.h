@@ -79,10 +79,10 @@
 #define APPCONF_PPM_TC						false
 #endif
 #ifndef APPCONF_PPM_TC_MAX_DIFF
-#define APPCONF_PPM_TC_MAX_DIFF				3000.0
+#define APPCONF_PPM_TC_MAX_DIFF				5000.0
 #endif
 #ifndef APPCONF_PPM_TC_OFFSET
-#define APPCONF_PPM_TC_OFFSET				1000.0
+#define APPCONF_PPM_TC_OFFSET				3000.0
 #endif
 #ifndef APPCONF_MAX_WATT_ENABLED
 #define APPCONF_MAX_WATT_ENABLED		true
@@ -168,7 +168,7 @@
 
 // UART app
 #ifndef APPCONF_UART_BAUDRATE
-#define APPCONF_UART_BAUDRATE				115200
+#define APPCONF_UART_BAUDRATE				9600
 #endif
 
 // Nunchuk app
@@ -200,10 +200,10 @@
 #define APPCONF_CHUK_TC						false
 #endif
 #ifndef APPCONF_CHUK_TC_MAX_DIFF
-#define APPCONF_CHUK_TC_MAX_DIFF			3000.0
+#define APPCONF_CHUK_TC_MAX_DIFF			5000.0
 #endif
 #ifndef APPCONF_CHUK_TC_OFFSET
-#define APPCONF_CHUK_TC_OFFSET				1000.0
+#define APPCONF_CHUK_TC_OFFSET				3000.0
 #endif
 
 // NRF app

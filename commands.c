@@ -44,6 +44,8 @@
 #include "packet.h"
 #include "encoder.h"
 
+#include "mcconf_default.h"
+
 #include <math.h>
 #include <string.h>
 #include <stdarg.h>
@@ -872,10 +874,39 @@ void commands_process_packet(unsigned char *data, unsigned int len) {
 		float cur_mot_min = buffer_get_float16(data, 10, &ind);
 		float cur_bat_min = buffer_get_float16(data, 10, &ind);
 		float max_erpm = buffer_get_float16(data, 0.1, &ind);
+		
+		bool useSpecialThrottleCurve = data[ind++];
+		float newY1 = buffer_get_float16(data, 1000, &ind);
+		float newY2 = buffer_get_float16(data, 1000, &ind); 
+		float newY3 = buffer_get_float16(data, 1000, &ind);
+		float newX1 = buffer_get_float16(data, 1000, &ind);
+		float newX2 = buffer_get_float16(data, 1000, &ind);
+		float newX3 = buffer_get_float16(data, 1000, &ind);
+		float newBezier_pos = buffer_get_float16(data, 100, &ind);
+		float newY1_neg = buffer_get_float16(data, 1000, &ind);
+		float newY2_neg = buffer_get_float16(data, 1000, &ind);
+		float newY3_neg = buffer_get_float16(data, 1000, &ind);
+		float newX1_neg = buffer_get_float16(data, 1000, &ind);
+		float newX2_neg = buffer_get_float16(data, 1000, &ind);
+		float newX3_neg = buffer_get_float16(data, 1000, &ind);
+		float newBezier_neg = buffer_get_float16(data, 100, &ind);
+
+		bool useSpecialPIDBrakingEnabled = data[ind++];
+		bool pidBrakingEnabled = data[ind++];
+
+		bool useSpecialSpeedPID = data[ind++];
+		float speed_pid_kp = buffer_get_float32(data, 1000000.0, &ind);
+		float speed_pid_ki = buffer_get_float32(data, 1000000.0, &ind);
+		float speed_pid_kd = buffer_get_float32(data, 1000000.0, &ind);
 
 		appconf = *app_get_configuration();
-
-		if (appconf.app_to_use == APP_PPM_UART || appconf.app_to_use == APP_PPM) {
+		
+		if (appconf.app_to_use == APP_PPM_UART 
+			|| appconf.app_to_use == APP_PPM 
+			|| appconf.app_to_use == APP_NONE 
+			|| appconf.app_to_use == APP_UART 
+			|| appconf.app_to_use == APP_NUNCHUK 
+			|| appconf.app_to_use == APP_NRF) {
 
 			app_configuration saved_appconf;
 		
@@ -887,53 +918,169 @@ void commands_process_packet(unsigned char *data, unsigned int len) {
 			// gett base settings for motor
 			conf_general_read_mc_configuration(&saved_mcconf);
 
+			// reset app ppm
 			appconf.app_ppm_conf.max_watt_enabled = saved_appconf.app_ppm_conf.max_watt_enabled;
 			appconf.app_ppm_conf.ctrl_type = saved_appconf.app_ppm_conf.ctrl_type;
 			appconf.app_ppm_conf.max_watt = saved_appconf.app_ppm_conf.max_watt;
+			appconf.app_ppm_conf.pid_max_erpm = saved_appconf.app_ppm_conf.pid_max_erpm;
+			appconf.app_ppm_conf.rpm_lim_end = saved_appconf.app_ppm_conf.rpm_lim_end;
+			appconf.app_ppm_conf.rpm_lim_start = saved_appconf.app_ppm_conf.rpm_lim_start;
+			
+			// reset app chuk
+			appconf.app_chuk_conf.ctrl_type = saved_appconf.app_chuk_conf.ctrl_type;
+			appconf.app_chuk_conf.rpm_lim_end = saved_appconf.app_chuk_conf.rpm_lim_end;
+			appconf.app_chuk_conf.rpm_lim_start = saved_appconf.app_chuk_conf.rpm_lim_start;
+			appconf.app_ppm_conf.max_watt_enabled = saved_appconf.app_ppm_conf.max_watt_enabled;
+			appconf.app_chuk_conf.max_watt = saved_appconf.app_chuk_conf.max_watt;
+			
+			// reset throttle curve
+			appconf.app_throttle_conf.adjustable_throttle_enabled = saved_appconf.app_throttle_conf.adjustable_throttle_enabled;
+			appconf.app_throttle_conf.y1_throttle = saved_appconf.app_throttle_conf.y1_throttle;
+			appconf.app_throttle_conf.y2_throttle = saved_appconf.app_throttle_conf.y2_throttle;
+			appconf.app_throttle_conf.y3_throttle = saved_appconf.app_throttle_conf.y3_throttle;
+			appconf.app_throttle_conf.x1_throttle = saved_appconf.app_throttle_conf.x1_throttle;
+			appconf.app_throttle_conf.x2_throttle = saved_appconf.app_throttle_conf.x2_throttle;
+			appconf.app_throttle_conf.x3_throttle = saved_appconf.app_throttle_conf.x3_throttle;
+			appconf.app_throttle_conf.bezier_reduce_factor = saved_appconf.app_throttle_conf.bezier_reduce_factor;
+			appconf.app_throttle_conf.y1_neg_throttle = saved_appconf.app_throttle_conf.y1_neg_throttle;
+			appconf.app_throttle_conf.y2_neg_throttle = saved_appconf.app_throttle_conf.y2_neg_throttle;
+			appconf.app_throttle_conf.y3_neg_throttle = saved_appconf.app_throttle_conf.y3_neg_throttle;
+			appconf.app_throttle_conf.x1_neg_throttle = saved_appconf.app_throttle_conf.x1_neg_throttle;
+			appconf.app_throttle_conf.x2_neg_throttle = saved_appconf.app_throttle_conf.x2_neg_throttle;
+			appconf.app_throttle_conf.x3_neg_throttle = saved_appconf.app_throttle_conf.x3_neg_throttle;
+			appconf.app_throttle_conf.bezier_neg_reduce_factor = saved_appconf.app_throttle_conf.bezier_neg_reduce_factor;
 	
+			// reset motor
 			mcconf.l_current_max = saved_mcconf.l_current_max;
 			mcconf.l_current_min = saved_mcconf.l_current_min;
 			mcconf.l_in_current_max = saved_mcconf.l_in_current_max;
 			mcconf.l_in_current_min = saved_mcconf.l_in_current_min;
-			mcconf.l_max_erpm = saved_mcconf.l_max_erpm;
-		
-			switch (new_speed_mode_int) {
-			case PPM_CTRL_TYPE_PID_NOACCELERATION:
-				appconf.app_ppm_conf.max_watt_enabled = true;
-			case PPM_CTRL_TYPE_CURRENT:
-			case PPM_CTRL_TYPE_CURRENT_NOREV:
-			case PPM_CTRL_TYPE_CURRENT_NOREV_BRAKE:
-			case PPM_CTRL_TYPE_DUTY:
-			case PPM_CTRL_TYPE_DUTY_NOREV:
-			case PPM_CTRL_TYPE_PID:
-			case PPM_CTRL_TYPE_PID_NOREV:
-			case PPM_CTRL_TYPE_WATT_NOREV_BRAKE:
-				if (!appconf.send_can_status) {
-					appconf.app_ppm_conf.ctrl_type = new_speed_mode_int;
-				}
-				if (watt >= 50.0 && watt <= 5000.0) appconf.app_ppm_conf.max_watt = watt;				
-				
-				if (cur_mot_max >= mcconf.cc_min_current && cur_mot_max <= 200) mcconf.l_current_max = cur_mot_max;
-				
-				if (cur_bat_max >= mcconf.cc_min_current && cur_bat_max <= 200) mcconf.l_in_current_max = cur_bat_max;
-				
-				if (cur_mot_min <= -mcconf.cc_min_current && cur_mot_min >= -200) mcconf.l_current_min = cur_mot_min;
-				
-				if (cur_bat_min <= -mcconf.cc_min_current && cur_bat_min >= -200) mcconf.l_in_current_min = cur_bat_min;
 
-				if (max_erpm >= 0 && max_erpm <= 100000.0) {
-					appconf.app_ppm_conf.pid_max_erpm = max_erpm;
-					appconf.app_ppm_conf.rpm_lim_end = max_erpm;
-					appconf.app_ppm_conf.rpm_lim_start = max_erpm - ((int16_t)(max_erpm / 25)); // 4% off
-				}
+			mcconf.s_pid_breaking_enabled = saved_mcconf.s_pid_breaking_enabled;
 
+			mcconf.s_pid_kp = saved_mcconf.s_pid_kp;
+			mcconf.s_pid_ki = saved_mcconf.s_pid_ki;
+			mcconf.s_pid_kd = saved_mcconf.s_pid_kd;
+
+			if (new_remote_Mode == 0){
 				remote_Mode = new_remote_Mode;
-				break;
-			default:
-				//only the basic settings which are defined by the bldc-tool
-				remote_Mode = 0;
-				break;
+			} else {
+				if (appconf.app_to_use == APP_NONE || appconf.app_to_use == APP_UART) {
+					if (appconf.send_can_status) {
+						remote_Mode = new_remote_Mode;
+					}
+				}
+				
+				if (appconf.app_to_use == APP_PPM_UART || appconf.app_to_use == APP_PPM) {
+					switch (new_speed_mode_int) {
+					case PPM_CTRL_TYPE_PID_NOACCELERATION:
+						appconf.app_ppm_conf.max_watt_enabled = true;
+					case PPM_CTRL_TYPE_NONE:
+					case PPM_CTRL_TYPE_CURRENT:
+					case PPM_CTRL_TYPE_CURRENT_NOREV:
+					case PPM_CTRL_TYPE_CURRENT_NOREV_BRAKE:
+					case PPM_CTRL_TYPE_DUTY:
+					case PPM_CTRL_TYPE_DUTY_NOREV:
+					case PPM_CTRL_TYPE_PID:
+					case PPM_CTRL_TYPE_PID_NOREV:
+					case PPM_CTRL_TYPE_WATT_NOREV_BRAKE:
+						if (!appconf.send_can_status) {
+							appconf.app_ppm_conf.ctrl_type = new_speed_mode_int;
+						
+							if (max_erpm > 0 && max_erpm <= 100000.0) {
+								appconf.app_ppm_conf.pid_max_erpm = max_erpm;
+								appconf.app_ppm_conf.rpm_lim_end = max_erpm;
+								appconf.app_ppm_conf.rpm_lim_start = max_erpm - ((int16_t)(max_erpm / 25)); // 4% off
+							}
+							
+							if (watt >= 10.0 && watt <= 5000.0){
+								appconf.app_ppm_conf.max_watt_enabled = true;
+								appconf.app_ppm_conf.max_watt = watt;
+							}
+						}
+					
+						remote_Mode = new_remote_Mode;
+						break;
+					default:
+						//only the basic settings which are defined by the bldc-tool
+						remote_Mode = 0;
+						break;
+					}
+				}
+				
+				if (appconf.app_to_use == APP_NUNCHUK || appconf.app_to_use == APP_NRF) {
+					switch (new_speed_mode_int) {
+					//case PPM_CTRL_TYPE_PID_NOACCELERATION:
+					//	appconf.app_chuk_conf.max_watt_enabled = true;
+					case CHUK_CTRL_TYPE_NONE:
+					case CHUK_CTRL_TYPE_CURRENT:
+					case CHUK_CTRL_TYPE_CURRENT_NOREV:
+					case CHUK_CTRL_TYPE_WATT:
+					case CHUK_CTRL_TYPE_WATT_NOREV:
+						if (!appconf.send_can_status) {
+							appconf.app_chuk_conf.ctrl_type = new_speed_mode_int;
+						
+							if (max_erpm > 0 && max_erpm <= 100000.0) {
+								appconf.app_chuk_conf.rpm_lim_end = max_erpm;
+								appconf.app_chuk_conf.rpm_lim_start = max_erpm - ((int16_t)(max_erpm / 25)); // 4% off
+							}
+													
+						}
+						if (watt >= 10.0 && watt <= 5000.0){
+							appconf.app_chuk_conf.max_watt_enabled = true;
+							appconf.app_chuk_conf.max_watt = watt;
+						} 
+					
+						remote_Mode = new_remote_Mode;
+						break;
+					default:
+						//only the basic settings which are defined by the bldc-tool
+						remote_Mode = 0;
+						break;
+					}
+				}
+				
+				if(remote_Mode != 0){
+					if (!appconf.send_can_status) {
+						if (useSpecialThrottleCurve) {
+							appconf.app_throttle_conf.adjustable_throttle_enabled = true;
+							appconf.app_throttle_conf.y1_throttle = newY1;
+							appconf.app_throttle_conf.y2_throttle = newY2;
+							appconf.app_throttle_conf.y3_throttle = newY3;
+							appconf.app_throttle_conf.x1_throttle = newX1;
+							appconf.app_throttle_conf.x2_throttle = newX2;
+							appconf.app_throttle_conf.x3_throttle = newX3;
+							appconf.app_throttle_conf.bezier_reduce_factor = newBezier_pos;
+							appconf.app_throttle_conf.y1_neg_throttle = newY1_neg;
+							appconf.app_throttle_conf.y2_neg_throttle = newY2_neg;
+							appconf.app_throttle_conf.y3_neg_throttle = newY3_neg;
+							appconf.app_throttle_conf.x1_neg_throttle = newX1_neg;
+							appconf.app_throttle_conf.x2_neg_throttle = newX2_neg;
+							appconf.app_throttle_conf.x3_neg_throttle = newX3_neg;
+							appconf.app_throttle_conf.bezier_neg_reduce_factor = newBezier_neg;
+						}
+					}
+
+					if (useSpecialPIDBrakingEnabled) {
+						mcconf.s_pid_breaking_enabled = pidBrakingEnabled;
+					}
+
+					if (useSpecialSpeedPID) {
+						mcconf.s_pid_kp = speed_pid_kp;
+						mcconf.s_pid_ki = speed_pid_ki;
+						mcconf.s_pid_kd = speed_pid_kd;
+					}					
+					
+					if (cur_mot_max >= mcconf.cc_min_current && cur_mot_max <= 200) mcconf.l_current_max = cur_mot_max;
+					
+					if (cur_bat_max >= mcconf.cc_min_current && cur_bat_max <= 200) mcconf.l_in_current_max = cur_bat_max;
+				
+					if (cur_mot_min <= -mcconf.cc_min_current && cur_mot_min >= -200) mcconf.l_current_min = cur_mot_min;
+				
+					if (cur_bat_min <= -mcconf.cc_min_current && cur_bat_min >= -200) mcconf.l_in_current_min = cur_bat_min;
+				}
 			}
+
 			if (!appconf.send_can_status) {
 				sendActualSpeedMode = true;
 			
@@ -942,7 +1089,9 @@ void commands_process_packet(unsigned char *data, unsigned int len) {
 				uint8_t send_buffer_can[PACKET_MAX_PL_LEN];
 		
 				send_buffer_can[ind++] = packet_id;
-				for(unsigned int i = 0; i < len; i++){
+				send_buffer_can[ind++] = remote_Mode;
+				
+				for(unsigned int i = 1; i < len; i++){
 					send_buffer_can[ind++] = data[i];
 				}
 			
@@ -1027,12 +1176,14 @@ void commands_process_packet(unsigned char *data, unsigned int len) {
 */
 		break;
 	case COMM_GET_SPEED_MODE:
-		appconf = *app_get_configuration();
-		mcconf = *mc_interface_get_configuration();
-		
 		sendActualSpeedMode = true;
 		break;
 	case COMM_SET_CURRENT_CONF_AS_DEFAULT:
+		
+		mcconf = *mc_interface_get_configuration();
+		
+		appconf = *app_get_configuration();
+				
 		if (!appconf.send_can_status) {
 			sendActualSpeedMode = true;
 		
@@ -1050,9 +1201,6 @@ void commands_process_packet(unsigned char *data, unsigned int len) {
 				}
 			}
 		}
-		mcconf = *mc_interface_get_configuration();
-
-		appconf = *app_get_configuration();
 
 		conf_general_store_mc_configuration(&mcconf);
 
@@ -1060,22 +1208,135 @@ void commands_process_packet(unsigned char *data, unsigned int len) {
 		
 		remote_Mode = 0;
 		break;
+	case COMM_SET_MOTOR_TYPE:
 
+		appconf = *app_get_configuration();
+
+		bool change_allowed = false;
+		
+		ind = 0;
+		uint8_t new_motor_type = data[ind++];
+		
+		if (new_motor_type == MOTOR_TYPE_FOC || new_motor_type == MOTOR_TYPE_BLDC) {
+			
+			mc_configuration saved_mcconf;
+			// gett base settings for motor
+			conf_general_read_mc_configuration(&saved_mcconf);
+			
+			if (saved_mcconf.motor_type != new_motor_type) {
+								
+				if (new_motor_type == MOTOR_TYPE_FOC && 
+					(saved_mcconf.foc_motor_l != MCCONF_FOC_MOTOR_L
+					 || saved_mcconf.foc_motor_r != MCCONF_FOC_MOTOR_R
+					 || saved_mcconf.foc_motor_flux_linkage != MCCONF_FOC_MOTOR_FLUX_LINKAGE)) {
+					change_allowed = true;
+				}
+				
+				if (new_motor_type == MOTOR_TYPE_BLDC && 
+					(saved_mcconf.sl_cycle_int_limit != MCCONF_SL_CYCLE_INT_LIMIT
+					 || saved_mcconf.foc_motor_r != MCCONF_SL_BEMF_COUPLING_K)) {
+					change_allowed = true;
+				}
+				
+				
+				if (change_allowed) {
+					if (!appconf.send_can_status) {
+						ind = 0;
+						// send to all others
+						uint8_t send_buffer_can[PACKET_MAX_PL_LEN];
+				
+						send_buffer_can[ind++] = packet_id;
+						send_buffer_can[ind++] = new_motor_type;
+						
+						for (int i = 0;i < CAN_STATUS_MSGS_TO_STORE;i++) {
+							can_status_msg *msg = comm_can_get_status_msg_index(i);
+
+							if (msg->id >= 0 && UTILS_AGE_S(msg->rx_time) < 1) {
+								comm_can_send_buffer(msg->id, send_buffer_can, len + 1, false);
+							}
+						}
+					}
+					saved_mcconf.motor_type = new_motor_type;
+				
+					conf_general_store_mc_configuration(&saved_mcconf);
+
+					if (!appconf.send_can_status) {
+						ind = 0;
+						send_buffer[ind++] = packet_id;
+						commands_send_packet(send_buffer, ind);
+					}
+					
+					__disable_irq();
+					for(;;){};
+				}
+			}
+		}
+		
+		if (change_allowed == false && !appconf.send_can_status) {
+			sendActualSpeedMode = true;
+		}
+		
+		break;
 	default:
 		break;
 	}
 
 	if (sendActualSpeedMode) {
+		appconf = *app_get_configuration();
+		mcconf = *mc_interface_get_configuration();
+				
 		ind = 0;
 		send_buffer[ind++] = COMM_GET_SPEED_MODE;
 		send_buffer[ind++] = remote_Mode;
-		send_buffer[ind++] = appconf.app_ppm_conf.ctrl_type;
-		buffer_append_int16(send_buffer, (int16_t) appconf.app_ppm_conf.max_watt, &ind);
+		if(appconf.app_to_use == APP_NUNCHUK || appconf.app_to_use == APP_NRF){
+			send_buffer[ind++] = appconf.app_chuk_conf.ctrl_type;
+			buffer_append_int16(send_buffer, (int16_t) appconf.app_chuk_conf.max_watt, &ind);
+		}else{
+			send_buffer[ind++] = appconf.app_ppm_conf.ctrl_type;
+			buffer_append_int16(send_buffer, (int16_t) appconf.app_ppm_conf.max_watt, &ind);
+		}
+				
 		buffer_append_int16(send_buffer, (int16_t) (mcconf.l_current_max * 10), &ind);
 		buffer_append_int16(send_buffer, (int16_t) (mcconf.l_in_current_max * 10), &ind);
 		buffer_append_int16(send_buffer, (int16_t) (mcconf.l_current_min * 10), &ind);
 		buffer_append_int16(send_buffer, (int16_t) (mcconf.l_in_current_min * 10), &ind);
-		buffer_append_int16(send_buffer, (int16_t) (mcconf.l_max_erpm / 10), &ind);
+		
+		if(appconf.app_to_use == APP_NUNCHUK || appconf.app_to_use == APP_NRF){
+			buffer_append_int16(send_buffer, (int16_t) (appconf.app_chuk_conf.rpm_lim_end / 10), &ind);
+		}else{
+			buffer_append_int16(send_buffer, (int16_t) (appconf.app_ppm_conf.rpm_lim_end / 10), &ind);
+		}
+		
+		buffer_append_int16(send_buffer, (int16_t) (mcconf.l_battery_cut_start * 100), &ind);
+		buffer_append_int16(send_buffer, (int16_t) (mcconf.l_battery_cut_end * 100), &ind);
+		buffer_append_int16(send_buffer, (int16_t) (mcconf.l_temp_fet_start * 100), &ind);
+		buffer_append_int16(send_buffer, (int16_t) (mcconf.l_temp_fet_end * 100), &ind);
+		
+		send_buffer[ind++] = appconf.app_to_use;
+		
+		send_buffer[ind++] = appconf.app_throttle_conf.adjustable_throttle_enabled;
+		buffer_append_int16(send_buffer, (int16_t)(appconf.app_throttle_conf.y1_throttle * 1000.0), &ind);
+		buffer_append_int16(send_buffer, (int16_t)(appconf.app_throttle_conf.y2_throttle * 1000.0), &ind);
+		buffer_append_int16(send_buffer, (int16_t)(appconf.app_throttle_conf.y3_throttle * 1000.0), &ind);
+		buffer_append_int16(send_buffer, (int16_t)(appconf.app_throttle_conf.x1_throttle * 1000.0), &ind);
+		buffer_append_int16(send_buffer, (int16_t)(appconf.app_throttle_conf.x2_throttle * 1000.0), &ind);
+		buffer_append_int16(send_buffer, (int16_t)(appconf.app_throttle_conf.x3_throttle * 1000.0), &ind);
+		buffer_append_int16(send_buffer, (int16_t)(appconf.app_throttle_conf.bezier_reduce_factor * 100.0), &ind);
+		buffer_append_int16(send_buffer, (int16_t)(appconf.app_throttle_conf.y1_neg_throttle * 1000.0), &ind);
+		buffer_append_int16(send_buffer, (int16_t)(appconf.app_throttle_conf.y2_neg_throttle * 1000.0), &ind);
+		buffer_append_int16(send_buffer, (int16_t)(appconf.app_throttle_conf.y3_neg_throttle * 1000.0), &ind);
+		buffer_append_int16(send_buffer, (int16_t)(appconf.app_throttle_conf.x1_neg_throttle * 1000.0), &ind);
+		buffer_append_int16(send_buffer, (int16_t)(appconf.app_throttle_conf.x2_neg_throttle * 1000.0), &ind);
+		buffer_append_int16(send_buffer, (int16_t)(appconf.app_throttle_conf.x3_neg_throttle * 1000.0), &ind);
+		buffer_append_int16(send_buffer, (int16_t)(appconf.app_throttle_conf.bezier_neg_reduce_factor * 100.0), &ind);
+
+		send_buffer[ind++] = mcconf.s_pid_breaking_enabled;
+		buffer_append_int32(send_buffer, (int32_t)(mcconf.s_pid_kp * 1000000.0), &ind);
+		buffer_append_int32(send_buffer, (int32_t)(mcconf.s_pid_ki * 1000000.0), &ind);
+		buffer_append_int32(send_buffer, (int32_t)(mcconf.s_pid_kd * 1000000.0), &ind);
+		
+		send_buffer[ind++] = mcconf.motor_type;
+		
 		commands_send_packet(send_buffer, ind);
 	}
 }

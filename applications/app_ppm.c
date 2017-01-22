@@ -225,10 +225,15 @@ static THD_FUNCTION(ppm_thread, arg) {
 		bool current_mode_brake = false;
 		const volatile mc_configuration *mcconf = mc_interface_get_configuration();
 		bool send_duty = false;
+		//bool send_watt = false;
+		bool send_pid = false;
+		bool send_pid_max_watt = false;
 		
 		// Find lowest RPM and cruise control
 		float rpm_local = mc_interface_get_rpm();
 		float rpm_lowest = rpm_local;
+		float mid_rpm = rpm_local;
+		int motor_count = 1;
 		bool cruise_control_status = false;
 		if (config.multi_esc) {
 			for (int i = 0;i < CAN_STATUS_MSGS_TO_STORE;i++) {
@@ -236,6 +241,10 @@ static THD_FUNCTION(ppm_thread, arg) {
 
 				if (msg->id >= 0 && UTILS_AGE_S(msg->rx_time) < MAX_CAN_AGE) {
 					float rpm_tmp = msg->rpm;
+					
+					// add to middle rpm count
+					mid_rpm += rpm_tmp;
+					motor_count += 1;
 
 					if (fabsf(rpm_tmp) < fabsf(rpm_lowest)) {
 						rpm_lowest = rpm_tmp;
@@ -248,7 +257,10 @@ static THD_FUNCTION(ppm_thread, arg) {
 				}
 			}
 		}
-
+		
+		// get middle rpm
+		mid_rpm /= motor_count;
+		
 		switch (config.ctrl_type) {
 		case PPM_CTRL_TYPE_CURRENT:
 		case PPM_CTRL_TYPE_CURRENT_NOREV:
@@ -257,13 +269,13 @@ static THD_FUNCTION(ppm_thread, arg) {
 				// check of can bus send cruise control command
 				if (cruise_control_status && servo_val == 0.0) {
 					// is rpm in range for cruise control
-					if (rpm_lowest > mcconf->s_pid_min_erpm && rpm_lowest < config.pid_max_erpm) {
+					if (rpm_lowest > mcconf->s_pid_min_erpm) {
 						if (pid_rpm == 0) {
 							pid_rpm = rpm_lowest;
 						}
 						current_mode = false;
-						send_duty = true;
-						mc_interface_set_pid_speed(pid_rpm);
+						send_pid = true;
+						mc_interface_set_pid_speed(rpm_local + pid_rpm - mid_rpm);
 					} else {
 						pid_rpm = 0;
 						current = 0.0;
@@ -287,13 +299,13 @@ static THD_FUNCTION(ppm_thread, arg) {
 				// check of can bus send cruise control command
 				if (cruise_control_status && servo_val == 0.0) {
 					// is rpm in range for cruise control
-					if (rpm_lowest > mcconf->s_pid_min_erpm && rpm_lowest < config.pid_max_erpm) {
+					if (rpm_lowest > mcconf->s_pid_min_erpm) {
 						if (pid_rpm == 0) {
 							pid_rpm = rpm_lowest;
 						}
 						current_mode = false;
-						send_duty = true;
-						mc_interface_set_pid_speed(pid_rpm);
+						send_pid = true;
+						mc_interface_set_pid_speed(rpm_local + pid_rpm - mid_rpm);
 					} else {
 						pid_rpm = 0;
 						current = 0.0;
@@ -317,16 +329,17 @@ static THD_FUNCTION(ppm_thread, arg) {
 				// check of can bus send cruise control command
 				if (cruise_control_status && servo_val == 0.0) {
 					// is rpm in range for cruise control
-					if (rpm_lowest > mcconf->s_pid_min_erpm && rpm_lowest < config.pid_max_erpm) {
+					if (rpm_lowest > mcconf->s_pid_min_erpm) {
 						if (pid_rpm == 0) {
-							pid_rpm = rpm_lowest;
+							pid_rpm = mid_rpm;
 						}
 						current_mode = false;
-						send_duty = true;
+						send_pid = true;
 						if (config.max_watt_enabled) {
-							mc_interface_set_pid_speed_and_watt(pid_rpm, config.max_watt);
+							send_pid_max_watt = true;
+							mc_interface_set_pid_speed_and_watt(rpm_local + pid_rpm - mid_rpm, config.max_watt);
 						} else {
-							mc_interface_set_pid_speed(pid_rpm);
+							mc_interface_set_pid_speed(rpm_local + pid_rpm - mid_rpm);
 						}
 					} else {
 						pid_rpm = 0;
@@ -363,7 +376,7 @@ static THD_FUNCTION(ppm_thread, arg) {
 		case PPM_CTRL_TYPE_PID_NOACCELERATION:
 			current_mode = true;
 			
-			filter_buffer[filter_ptr++] = rpm_lowest;
+			filter_buffer[filter_ptr++] = mid_rpm;
 			if (filter_ptr >= RPM_FILTER_SAMPLES) {
 				filter_ptr = 0;
 				has_enough_pid_filter_data = true;
@@ -398,24 +411,20 @@ static THD_FUNCTION(ppm_thread, arg) {
 					}
 					
 					// if not too slow than set the pid
-					if(pid_rpm > 0 && pid_rpm < config.pid_max_erpm){
+					if(pid_rpm > 0 && pid_rpm < config.pid_max_erpm) {
 						current_mode = false;
-						send_duty = true;
-						mc_interface_set_pid_speed_and_watt(pid_rpm, config.max_watt);
 						
-						// Send the same duty cycle to the other controllers
-						if (config.multi_esc) {
-							//float duty = mc_interface_get_duty_cycle_now();
-
-							for (int i = 0; i < CAN_STATUS_MSGS_TO_STORE; i++) {
-								can_status_msg *msg = comm_can_get_status_msg_index(i);
-
-								if (msg->id >= 0 && UTILS_AGE_S(msg->rx_time) < MAX_CAN_AGE) {
-									//comm_can_set_duty(msg->id, duty);
-									comm_can_set_rpm_and_watt(msg->id, pid_rpm, config.max_watt);
-								}
-							}
+						send_pid = true;
+						if (config.max_watt_enabled) {
+							mc_interface_set_pid_speed_and_watt(rpm_local + pid_rpm - rpm_filtered, config.max_watt);
+							send_pid_max_watt = true;
+						}else{
+							mc_interface_set_pid_speed(rpm_local + pid_rpm - rpm_filtered);
 						}
+
+						// overwrite mid_rpm
+						mid_rpm = rpm_filtered;
+
 					} else {
 						current = 0.0;
 					}
@@ -502,6 +511,57 @@ static THD_FUNCTION(ppm_thread, arg) {
 
 				if (msg->id >= 0 && UTILS_AGE_S(msg->rx_time) < MAX_CAN_AGE) {
 					comm_can_set_duty(msg->id, duty);
+				}
+			}
+		}
+
+		/*if (send_watt && config.multi_esc) {
+			float watt = mc_interface_get_watt_now();
+			
+			for (int i = 0;i < CAN_STATUS_MSGS_TO_STORE;i++) {
+				can_status_msg *msg = comm_can_get_status_msg_index(i);
+
+				if (msg->id >= 0 && UTILS_AGE_S(msg->rx_time) < MAX_CAN_AGE) {
+					float watt_out = watt;
+					if (config.tc) {
+						float rpm_tmp = msg->rpm;
+						
+						//if (is_reverse) {
+						//	rpm_tmp = -rpm_tmp;
+						//}
+						//if (config.max_watt_enabled) {
+						//	current = servo_val * (config.max_watt / mc_interface_get_motor_voltage());
+						//} else {
+						//	current = servo_val * mc_interface_get_max_current_at_current_motor_voltage();
+						//}
+
+						float diff = rpm_tmp - rpm_lowest;
+						
+						if (watt < 0.0) {
+							diff = rpm_local - rpm_tmp; 
+						}
+						
+						if (diff > config.tc_offset) {
+							watt_out = utils_map(diff - config.tc_offset, 0.0, config.tc_max_diff - config.tc_offset, watt, 0.0);
+						}
+					}
+					comm_can_set_watt(msg->id, watt_out);
+				}
+			}
+		}
+		*/
+
+		if (send_pid && config.multi_esc) {
+			
+			for (int i = 0;i < CAN_STATUS_MSGS_TO_STORE;i++) {
+				can_status_msg *msg = comm_can_get_status_msg_index(i);
+
+				if (msg->id >= 0 && UTILS_AGE_S(msg->rx_time) < MAX_CAN_AGE) {
+					if (send_pid_max_watt) {
+						comm_can_set_rpm_and_watt(msg->id, msg->rpm + pid_rpm - mid_rpm, config.max_watt);
+					} else {
+						comm_can_set_rpm(msg->id, msg->rpm + pid_rpm - mid_rpm);
+					}
 				}
 			}
 		}
