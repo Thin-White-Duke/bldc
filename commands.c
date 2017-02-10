@@ -44,8 +44,6 @@
 #include "packet.h"
 #include "encoder.h"
 
-#include "mcconf_default.h"
-
 #include <math.h>
 #include <string.h>
 #include <stdarg.h>
@@ -1220,21 +1218,25 @@ void commands_process_packet(unsigned char *data, unsigned int len) {
 		if (new_motor_type == MOTOR_TYPE_FOC || new_motor_type == MOTOR_TYPE_BLDC) {
 			
 			mc_configuration saved_mcconf;
-			// gett base settings for motor
+			
+			// get base settings for motor to campare them
 			conf_general_read_mc_configuration(&saved_mcconf);
 			
 			if (saved_mcconf.motor_type != new_motor_type) {
+				
+				//get default settings
+				conf_general_get_default_mc_configuration(&mcconf);
 								
 				if (new_motor_type == MOTOR_TYPE_FOC && 
-					(saved_mcconf.foc_motor_l != MCCONF_FOC_MOTOR_L
-					 || saved_mcconf.foc_motor_r != MCCONF_FOC_MOTOR_R
-					 || saved_mcconf.foc_motor_flux_linkage != MCCONF_FOC_MOTOR_FLUX_LINKAGE)) {
+					(saved_mcconf.foc_motor_l != mcconf.foc_motor_l
+					 || saved_mcconf.foc_motor_r != mcconf.foc_motor_r
+					 || saved_mcconf.foc_motor_flux_linkage != mcconf.foc_motor_flux_linkage)) {
 					change_allowed = true;
 				}
 				
 				if (new_motor_type == MOTOR_TYPE_BLDC && 
-					(saved_mcconf.sl_cycle_int_limit != MCCONF_SL_CYCLE_INT_LIMIT
-					 || saved_mcconf.foc_motor_r != MCCONF_SL_BEMF_COUPLING_K)) {
+					(saved_mcconf.sl_cycle_int_limit != mcconf.sl_cycle_int_limit
+					 || saved_mcconf.sl_bemf_coupling_k != mcconf.sl_bemf_coupling_k)) {
 					change_allowed = true;
 				}
 				
@@ -1256,15 +1258,30 @@ void commands_process_packet(unsigned char *data, unsigned int len) {
 							}
 						}
 					}
+
+					// read app config
+					app_configuration saved_appconf;
+		
+					conf_general_read_app_configuration(&saved_appconf);
+
+					//change motor config
 					saved_mcconf.motor_type = new_motor_type;
 				
+					//write motor config
 					conf_general_store_mc_configuration(&saved_mcconf);
+					
+					//write app config
+					conf_general_store_app_configuration(&saved_appconf);
+
+					chThdSleepMilliseconds(500);
 
 					if (!appconf.send_can_status) {
 						ind = 0;
 						send_buffer[ind++] = packet_id;
 						commands_send_packet(send_buffer, ind);
 					}
+
+					chThdSleepMilliseconds(2000);
 					
 					__disable_irq();
 					for(;;){};

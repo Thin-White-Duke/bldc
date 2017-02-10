@@ -515,42 +515,6 @@ static THD_FUNCTION(ppm_thread, arg) {
 			}
 		}
 
-		/*if (send_watt && config.multi_esc) {
-			float watt = mc_interface_get_watt_now();
-			
-			for (int i = 0;i < CAN_STATUS_MSGS_TO_STORE;i++) {
-				can_status_msg *msg = comm_can_get_status_msg_index(i);
-
-				if (msg->id >= 0 && UTILS_AGE_S(msg->rx_time) < MAX_CAN_AGE) {
-					float watt_out = watt;
-					if (config.tc) {
-						float rpm_tmp = msg->rpm;
-						
-						//if (is_reverse) {
-						//	rpm_tmp = -rpm_tmp;
-						//}
-						//if (config.max_watt_enabled) {
-						//	current = servo_val * (config.max_watt / mc_interface_get_motor_voltage());
-						//} else {
-						//	current = servo_val * mc_interface_get_max_current_at_current_motor_voltage();
-						//}
-
-						float diff = rpm_tmp - rpm_lowest;
-						
-						if (watt < 0.0) {
-							diff = rpm_local - rpm_tmp; 
-						}
-						
-						if (diff > config.tc_offset) {
-							watt_out = utils_map(diff - config.tc_offset, 0.0, config.tc_max_diff - config.tc_offset, watt, 0.0);
-						}
-					}
-					comm_can_set_watt(msg->id, watt_out);
-				}
-			}
-		}
-		*/
-
 		if (send_pid && config.multi_esc) {
 			
 			for (int i = 0;i < CAN_STATUS_MSGS_TO_STORE;i++) {
