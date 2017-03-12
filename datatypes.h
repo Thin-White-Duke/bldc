@@ -470,8 +470,7 @@ typedef enum {
 	CAN_PACKET_PROCESS_RX_BUFFER,
 	CAN_PACKET_PROCESS_SHORT_BUFFER,
 	CAN_PACKET_STATUS,
-	CAN_PACKET_SET_RPM_AND_WATT,
-	CAN_PACKET_SET_WATT
+	CAN_PACKET_SET_RPM_AND_WATT
 } CAN_PACKET_ID;
 
 // Logged fault data
@@ -518,8 +517,8 @@ typedef struct {
 	systime_t rx_time;
 	float rpm;
 	float current;
-	float duty;
-	int cruise_control_status;
+	int8_t duty;
+	int8_t cruise_control_status;
 } can_status_msg;
 
 typedef struct {

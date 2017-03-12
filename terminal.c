@@ -235,8 +235,8 @@ void terminal_process_string(char *str) {
 				commands_printf("Age (milliseconds) : %.2f", (double)(UTILS_AGE_S(msg->rx_time) * 1000.0));
 				commands_printf("RPM                : %.2f", (double)(msg->rpm));
 				commands_printf("Current            : %.2f", (double)msg->current);
-				//commands_printf("Duty               : %.2f\n", (double)msg->duty);
-				commands_printf("Cruise Control     : %.0f", (double)msg->cruise_control_status);
+				commands_printf("Duty               : %i", msg->duty);
+				commands_printf("Cruise Control     : %i\n", msg->cruise_control_status);
 			}
 		}
 	} else if (strcmp(argv[0], "can_member") == 0) {

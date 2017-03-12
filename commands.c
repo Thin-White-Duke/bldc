@@ -1201,8 +1201,10 @@ void commands_process_packet(unsigned char *data, unsigned int len) {
 		}
 
 		conf_general_store_mc_configuration(&mcconf);
+		mc_interface_set_configuration(&mcconf);
 
 		conf_general_store_app_configuration(&appconf);
+		app_set_configuration(&appconf);
 		
 		remote_Mode = 0;
 		break;
@@ -1224,19 +1226,20 @@ void commands_process_packet(unsigned char *data, unsigned int len) {
 			
 			if (saved_mcconf.motor_type != new_motor_type) {
 				
+				mc_configuration default_mcconf;
 				//get default settings
-				conf_general_get_default_mc_configuration(&mcconf);
+				conf_general_get_default_mc_configuration(&default_mcconf);
 								
 				if (new_motor_type == MOTOR_TYPE_FOC && 
-					(saved_mcconf.foc_motor_l != mcconf.foc_motor_l
-					 || saved_mcconf.foc_motor_r != mcconf.foc_motor_r
-					 || saved_mcconf.foc_motor_flux_linkage != mcconf.foc_motor_flux_linkage)) {
+					(saved_mcconf.foc_motor_l != default_mcconf.foc_motor_l
+					 || saved_mcconf.foc_motor_r != default_mcconf.foc_motor_r
+					 || saved_mcconf.foc_motor_flux_linkage != default_mcconf.foc_motor_flux_linkage)) {
 					change_allowed = true;
 				}
 				
 				if (new_motor_type == MOTOR_TYPE_BLDC && 
-					(saved_mcconf.sl_cycle_int_limit != mcconf.sl_cycle_int_limit
-					 || saved_mcconf.sl_bemf_coupling_k != mcconf.sl_bemf_coupling_k)) {
+					(saved_mcconf.sl_cycle_int_limit != default_mcconf.sl_cycle_int_limit
+					 || saved_mcconf.sl_bemf_coupling_k != default_mcconf.sl_bemf_coupling_k)) {
 					change_allowed = true;
 				}
 				
@@ -1259,21 +1262,14 @@ void commands_process_packet(unsigned char *data, unsigned int len) {
 						}
 					}
 
-					// read app config
-					app_configuration saved_appconf;
-		
-					conf_general_read_app_configuration(&saved_appconf);
-
 					//change motor config
 					saved_mcconf.motor_type = new_motor_type;
 				
 					//write motor config
 					conf_general_store_mc_configuration(&saved_mcconf);
+					mc_interface_set_configuration(&mcconf);
 					
-					//write app config
-					conf_general_store_app_configuration(&saved_appconf);
-
-					chThdSleepMilliseconds(500);
+					chThdSleepMilliseconds(100);
 
 					if (!appconf.send_can_status) {
 						ind = 0;
@@ -1281,10 +1277,6 @@ void commands_process_packet(unsigned char *data, unsigned int len) {
 						commands_send_packet(send_buffer, ind);
 					}
 
-					chThdSleepMilliseconds(2000);
-					
-					__disable_irq();
-					for(;;){};
 				}
 			}
 		}

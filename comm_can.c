@@ -182,11 +182,6 @@ static THD_FUNCTION(cancom_process_thread, arg) {
 						mc_interface_set_pid_speed((float)buffer_get_int32(rxmsg.data8, &ind));
 						timeout_reset();
 						break;
-					case CAN_PACKET_SET_WATT:
-						ind = 0;
-						mc_interface_set_watt((float)buffer_get_int32(rxmsg.data8, &ind));
-						timeout_reset();
-						break;
 						
 					case CAN_PACKET_SET_RPM_AND_WATT:
 						ind = 0;
@@ -267,8 +262,8 @@ static THD_FUNCTION(cancom_process_thread, arg) {
 							stat_tmp->rx_time = chVTGetSystemTime();
 							stat_tmp->rpm = (float)buffer_get_int32(rxmsg.data8, &ind);
 							stat_tmp->current = (float)buffer_get_int16(rxmsg.data8, &ind) / 10.0;
-							//stat_tmp->duty = (float)buffer_get_int16(rxmsg.data8, &ind) / 1000.0;
-							stat_tmp->cruise_control_status = (int)buffer_get_int16(rxmsg.data8, &ind);
+							stat_tmp->duty = rxmsg.data8[ind++];//buffer_get_int16(rxmsg.data8, &ind) / 1000.0;
+							stat_tmp->cruise_control_status = rxmsg.data8[ind++];//(int)buffer_get_int16(rxmsg.data8, &ind);
 							break;
 						}
 					}
@@ -297,8 +292,11 @@ static THD_FUNCTION(cancom_status_thread, arg) {
 			uint8_t buffer[8];
 			buffer_append_int32(buffer, (int32_t)mc_interface_get_rpm(), &send_index);
 			buffer_append_int16(buffer, (int16_t)(mc_interface_get_tot_current() * 10.0), &send_index);
+			buffer[send_index++] = (int8_t) floor(mc_interface_get_duty_cycle_now() * 100);
+			buffer[send_index++] = (int8_t) mc_interface_get_cruise_control_status();
+			
 			//buffer_append_int16(buffer, (int16_t)(mc_interface_get_duty_cycle_now() * 1000.0), &send_index);
-			buffer_append_int16(buffer, (int16_t)mc_interface_get_cruise_control_status(), &send_index);
+			//buffer_append_int16(buffer, (int16_t)mc_interface_get_cruise_control_status(), &send_index);
 			comm_can_transmit(app_get_configuration()->controller_id | ((uint32_t)CAN_PACKET_STATUS << 8), buffer, send_index);
 		}
 
@@ -428,13 +426,6 @@ void comm_can_set_current_brake(uint8_t controller_id, float current) {
 	uint8_t buffer[4];
 	buffer_append_int32(buffer, (int32_t)(current * 1000.0), &send_index);
 	comm_can_transmit(controller_id | ((uint32_t)CAN_PACKET_SET_CURRENT_BRAKE << 8), buffer, send_index);
-}
-
-void comm_can_set_watt(uint8_t controller_id, float watt) {
-	int32_t send_index = 0;
-	uint8_t buffer[4];
-	buffer_append_int32(buffer, (int32_t)watt, &send_index);
-	comm_can_transmit(controller_id | ((uint32_t)CAN_PACKET_SET_WATT << 8), buffer, send_index);
 }
 
 void comm_can_set_rpm(uint8_t controller_id, float rpm) {

@@ -294,6 +294,32 @@ void conf_general_read_app_configuration(app_configuration *conf) {
 		}
 	}
 
+	if(is_ok == false){
+		chThdSleepMilliseconds(10);
+		for (unsigned int i = 0;i < (sizeof(app_configuration) / 2);i++) {
+			if (EE_ReadVariable(EEPROM_BASE_APPCONF + i, &var) == 0) {
+				conf_addr[2 * i] = (var >> 8) & 0xFF;
+				conf_addr[2 * i + 1] = var & 0xFF;
+			} else {
+				is_ok = false;
+				break;
+			}
+		}
+	}
+
+	if(is_ok == false){
+		chThdSleepMilliseconds(10);
+		for (unsigned int i = 0;i < (sizeof(app_configuration) / 2);i++) {
+			if (EE_ReadVariable(EEPROM_BASE_APPCONF + i, &var) == 0) {
+				conf_addr[2 * i] = (var >> 8) & 0xFF;
+				conf_addr[2 * i + 1] = var & 0xFF;
+			} else {
+				is_ok = false;
+				break;
+			}
+		}
+	}
+
 	// Set the default configuration
 	if (!is_ok) {
 		conf_general_get_default_app_configuration(conf);
@@ -329,6 +355,34 @@ bool conf_general_store_app_configuration(app_configuration *conf) {
 			break;
 		}
 	}
+	
+	// try one more time
+	if(is_ok == false){
+		chThdSleepMilliseconds(10);
+		for (unsigned int i = 0;i < (sizeof(app_configuration) / 2);i++) {
+			var = (conf_addr[2 * i] << 8) & 0xFF00;
+			var |= conf_addr[2 * i + 1] & 0xFF;
+
+			if (EE_WriteVariable(EEPROM_BASE_APPCONF + i, var) != FLASH_COMPLETE) {
+				is_ok = false;
+				break;
+			}
+		}
+	}
+	
+	// try again one more time
+	if(is_ok == false){
+		chThdSleepMilliseconds(10);
+		for (unsigned int i = 0;i < (sizeof(app_configuration) / 2);i++) {
+			var = (conf_addr[2 * i] << 8) & 0xFF00;
+			var |= conf_addr[2 * i + 1] & 0xFF;
+
+			if (EE_WriteVariable(EEPROM_BASE_APPCONF + i, var) != FLASH_COMPLETE) {
+				is_ok = false;
+				break;
+			}
+		}
+	}
 
 	RCC_APB1PeriphClockCmd(RCC_APB1Periph_WWDG, ENABLE);
 	utils_sys_unlock_cnt();
@@ -354,6 +408,34 @@ void conf_general_read_mc_configuration(mc_configuration *conf) {
 		} else {
 			is_ok = false;
 			break;
+		}
+	}
+
+	// try one more time
+	if(is_ok == false){
+		chThdSleepMilliseconds(10);
+		for (unsigned int i = 0;i < (sizeof(mc_configuration) / 2);i++) {
+			if (EE_ReadVariable(EEPROM_BASE_MCCONF + i, &var) == 0) {
+				conf_addr[2 * i] = (var >> 8) & 0xFF;
+				conf_addr[2 * i + 1] = var & 0xFF;
+			} else {
+				is_ok = false;
+				break;
+			}
+		}
+	}
+
+	// try another one more time
+	if(is_ok == false){
+		chThdSleepMilliseconds(10);
+		for (unsigned int i = 0;i < (sizeof(mc_configuration) / 2);i++) {
+			if (EE_ReadVariable(EEPROM_BASE_MCCONF + i, &var) == 0) {
+				conf_addr[2 * i] = (var >> 8) & 0xFF;
+				conf_addr[2 * i + 1] = var & 0xFF;
+			} else {
+				is_ok = false;
+				break;
+			}
 		}
 	}
 
@@ -389,6 +471,34 @@ bool conf_general_store_mc_configuration(mc_configuration *conf) {
 		if (EE_WriteVariable(EEPROM_BASE_MCCONF + i, var) != FLASH_COMPLETE) {
 			is_ok = false;
 			break;
+		}
+	}
+	
+	// try one more time
+	if(is_ok == false){
+		chThdSleepMilliseconds(10);
+		for (unsigned int i = 0;i < (sizeof(mc_configuration) / 2);i++) {
+			var = (conf_addr[2 * i] << 8) & 0xFF00;
+			var |= conf_addr[2 * i + 1] & 0xFF;
+
+			if (EE_WriteVariable(EEPROM_BASE_MCCONF + i, var) != FLASH_COMPLETE) {
+				is_ok = false;
+				break;
+			}
+		}
+	}
+	
+	// try again one more time
+	if(is_ok == false){
+		chThdSleepMilliseconds(10);
+		for (unsigned int i = 0;i < (sizeof(mc_configuration) / 2);i++) {
+			var = (conf_addr[2 * i] << 8) & 0xFF00;
+			var |= conf_addr[2 * i + 1] & 0xFF;
+
+			if (EE_WriteVariable(EEPROM_BASE_MCCONF + i, var) != FLASH_COMPLETE) {
+				is_ok = false;
+				break;
+			}
 		}
 	}
 

@@ -91,6 +91,8 @@ static volatile float last_pwm_cycles_sum;
 static volatile float last_pwm_cycles_sums[6];
 static volatile bool dccal_done;
 static volatile bool sensorless_now;
+static volatile float sensor_hyst_min;
+static volatile float sensor_hyst_max;
 static volatile int hall_detect_table[8][7];
 
 // KV FIR filter
@@ -509,6 +511,14 @@ void mcpwm_init_hall_table(int8_t *table) {
 
 		hall_to_phase_table[i] = fwd_to_rev[ind_now];
 	}
+	
+	// init the sensor hyst
+	float sensor_hyst = conf->hall_sl_erpm * 0.10;
+	if(sensor_hyst > 500.0){
+		sensor_hyst = 500.0;
+	}
+	sensor_hyst_min = conf->hall_sl_erpm - sensor_hyst;
+	sensor_hyst_max = conf->hall_sl_erpm + sensor_hyst;
 }
 
 static void do_dc_cal(void) {
@@ -635,24 +645,6 @@ void mcpwm_set_current(float current) {
 }
 
 /**
- * Use current control and specify a goal current to use. The sign determines
- * the direction of the torque.
- *
- * @param current
- * The current to use.
- */
-void mcpwm_set_current_without_switchoff(float current) {
-	utils_truncate_number(&current, conf->lo_current_min, conf->lo_current_max);
-
-	control_mode = CONTROL_MODE_CURRENT;
-	current_set = current;
-
-	if (state != MC_STATE_RUNNING) {
-		set_duty_cycle_hl(SIGN(current) * conf->l_min_duty);
-	}
-}
-
-/**
  * Brake the motor with a desired current. Absolute values less than
  * conf->cc_min_current will release the motor.
  *
@@ -666,37 +658,6 @@ void mcpwm_set_brake_current(float current) {
 		return;
 	}
 
-	utils_truncate_number(&current, -fabsf(conf->lo_current_min), fabsf(conf->lo_current_min));
-
-	control_mode = CONTROL_MODE_CURRENT_BRAKE;
-	current_set = current;
-
-	if (state != MC_STATE_RUNNING && state != MC_STATE_FULL_BRAKE) {
-		// In case the motor is already spinning, set the state to running
-		// so that it can be ramped down before the full brake is applied.
-		if (conf->motor_type == MOTOR_TYPE_DC) {
-			if (fabsf(dutycycle_now) > 0.1) {
-				state = MC_STATE_RUNNING;
-			} else {
-				full_brake_ll();
-			}
-		} else {
-			if (fabsf(rpm_now) > conf->l_max_erpm_fbrake) {
-				state = MC_STATE_RUNNING;
-			} else {
-				full_brake_ll();
-			}
-		}
-	}
-}
-
-/**
- * Brake the motor with a desired current.
- *
- * @param current
- * The current to use. Positive and negative values give the same effect.
- */
-void mcpwm_set_brake_current_without_switchoff(float current) {
 	utils_truncate_number(&current, -fabsf(conf->lo_current_min), fabsf(conf->lo_current_min));
 
 	control_mode = CONTROL_MODE_CURRENT_BRAKE;
@@ -1173,11 +1134,15 @@ static void run_pid_control_speed(void) {
 	if (conf->s_pid_breaking_enabled) {
 		utils_truncate_number(&output, -1.0, 1.0);
 	} else {
-		utils_truncate_number(&output, 0.0, 1.0);
+		if(speed_pid_set_rpm < 0.0){
+			utils_truncate_number(&output, -1.0, 0.0);
+		}else{
+			utils_truncate_number(&output, 0.0, 1.0);
+		}
 	}
 		
-	if (max_pid_watt != 0) {
-		const float actual_duty = dutycycle_now;
+	/*if (max_pid_watt != 0) {
+		const float actual_duty = fabsf(dutycycle_now);
 
 		if (actual_duty < conf->l_min_duty){
 			current_set = output * (max_pid_watt / fabsf(GET_INPUT_VOLTAGE() * conf->l_min_duty));
@@ -1190,7 +1155,9 @@ static void run_pid_control_speed(void) {
 		}
 	} else {
 		current_set = output * conf->lo_current_max;
-	}
+	}*/
+
+	current_set = output * conf->lo_current_max;
 }
 
 static void run_pid_control_pos(float dt) {
@@ -2408,12 +2375,33 @@ static void update_rpm_tacho(void) {
 	}
 }
 
+/*
 static void update_sensor_mode(void) {
 	if (conf->sensor_mode == SENSOR_MODE_SENSORLESS ||
 			(conf->sensor_mode == SENSOR_MODE_HYBRID &&
 					fabsf(mcpwm_get_rpm()) > conf->hall_sl_erpm)) {
 		sensorless_now = true;
 	} else {
+		sensorless_now = false;
+	}
+}
+*/
+
+static void update_sensor_mode(void) {
+	if (conf->sensor_mode == SENSOR_MODE_SENSORLESS ) {
+		sensorless_now = true;
+	} else if (conf->sensor_mode == SENSOR_MODE_HYBRID) {
+		// Hysteresis 5 % of total speed
+		if (sensorless_now) {
+			if (fabsf(rpm_now) < sensor_hyst_min) {
+				sensorless_now = false;
+			}
+		} else {
+			if (fabsf(rpm_now) > sensor_hyst_max) {
+				sensorless_now = true;
+			}
+		}
+	}else{
 		sensorless_now = false;
 	}
 }

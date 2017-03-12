@@ -102,8 +102,8 @@ static volatile float m_observer_x2;
 static volatile float m_pll_phase;
 static volatile float m_pll_speed;
 static volatile mc_sample_t m_samples;
-static volatile int m_tachometer;
-static volatile int m_tachometer_abs;
+static volatile float m_tachometer;
+static volatile float m_tachometer_abs;
 static volatile float last_inj_adc_isr_duration;
 static volatile float m_pos_pid_now;
 
@@ -216,8 +216,8 @@ void mcpwm_foc_init(volatile mc_configuration *configuration) {
 	m_observer_x2 = 0.0;
 	m_pll_phase = 0.0;
 	m_pll_speed = 0.0;
-	m_tachometer = 0;
-	m_tachometer_abs = 0;
+	m_tachometer = 0.0;
+	m_tachometer_abs = 0.0;
 	last_inj_adc_isr_duration = 0;
 	m_pos_pid_now = 0.0;
 	memset((void*)&m_motor_state, 0, sizeof(motor_state_t));
@@ -588,24 +588,6 @@ void mcpwm_foc_set_current(float current) {
 }
 
 /**
- * Use current control and specify a goal current to use. The sign determines
- * the direction of the torque.
- *
- * @param current
- * The current to use.
- */
-void mcpwm_foc_set_current_without_switchoff(float current) {
-	utils_truncate_number(&current, m_conf->lo_current_min, m_conf->lo_current_max);
-
-	m_control_mode = CONTROL_MODE_CURRENT;
-	m_iq_set = current;
-
-	if (m_state != MC_STATE_RUNNING) {
-		m_state = MC_STATE_RUNNING;
-	}
-}
-
-/**
  * Brake the motor with a desired current. Absolute values less than
  * conf->cc_min_current will release the motor.
  *
@@ -620,23 +602,6 @@ void mcpwm_foc_set_brake_current(float current) {
 		return;
 	}
 
-	utils_truncate_number(&current, m_conf->lo_current_min, m_conf->lo_current_max);
-
-	m_control_mode = CONTROL_MODE_CURRENT_BRAKE;
-	m_iq_set = current;
-
-	if (m_state != MC_STATE_RUNNING) {
-		m_state = MC_STATE_RUNNING;
-	}
-}
-
-/**
- * Brake the motor with a desired current.
- *
- * @param current
- * The current to use. Positive and negative values give the same effect.
- */
-void mcpwm_foc_set_brake_current_without_switchoff(float current) {
 	utils_truncate_number(&current, m_conf->lo_current_min, m_conf->lo_current_max);
 
 	m_control_mode = CONTROL_MODE_CURRENT_BRAKE;
@@ -785,10 +750,10 @@ float mcpwm_foc_get_tot_current_in_filtered(void) {
  * be this number divided by (3 * MOTOR_POLE_NUMBER).
  */
 int mcpwm_foc_get_tachometer_value(bool reset) {
-	int val = m_tachometer;
+	int val = (int) m_tachometer;
 
 	if (reset) {
-		m_tachometer = 0;
+		m_tachometer = 0.0;
 	}
 
 	return val;
@@ -805,10 +770,10 @@ int mcpwm_foc_get_tachometer_value(bool reset) {
  * be this number divided by (3 * MOTOR_POLE_NUMBER).
  */
 int mcpwm_foc_get_tachometer_abs_value(bool reset) {
-	int val = m_tachometer_abs;
+	int val = (int) m_tachometer_abs;
 
 	if (reset) {
-		m_tachometer_abs = 0;
+		m_tachometer_abs = 0.0;
 	}
 
 	return val;
@@ -1693,10 +1658,11 @@ void mcpwm_foc_adc_inj_int_handler(void) {
 
 	// Update tachometer
 	static float phase_last = 0.0;
-	int diff = (int)((utils_angle_difference_rad(m_motor_state.phase, phase_last) * (180.0 / M_PI)) / 60.0);
-	if (diff != 0) {
+	// int diff = (int)((utils_angle_difference_rad(m_motor_state.phase, phase_last) * (180.0 / M_PI)) / 60.0);
+	float diff = (utils_angle_difference_rad(m_motor_state.phase, phase_last) * (180.0 / M_PI)) / 60.0;
+	if ((int) diff != 0) {
 		m_tachometer += diff;
-		m_tachometer_abs += abs(diff);
+		m_tachometer_abs += fabsf(diff);
 		phase_last = m_motor_state.phase;
 	}
 
@@ -2197,25 +2163,36 @@ static void run_pid_control_speed(float dt) {
 	if (m_conf->s_pid_breaking_enabled) {
 		utils_truncate_number(&output, -1.0, 1.0);
 	} else {
-		utils_truncate_number(&output, 0.0, 1.0);
+		if(m_speed_pid_set_rpm < 0.0){
+			utils_truncate_number(&output, -1.0, 0.0);
+		}else{
+			utils_truncate_number(&output, 0.0, 1.0);
+		}
 	}
 
-	if (max_pid_watt != 0) {
-		const float actual_duty = m_motor_state.duty_now;
-
+	/*if (max_pid_watt != 0) {
+		float actual_duty = fabsf(m_motor_state.duty_now);
 		if (actual_duty < m_conf->l_min_duty){
-			m_iq_set = output * (max_pid_watt / fabsf(GET_INPUT_VOLTAGE() * m_conf->l_min_duty));
-		} else {
-			m_iq_set = output * (max_pid_watt / fabsf(GET_INPUT_VOLTAGE() * actual_duty));
+			actual_duty = m_conf->l_min_duty;	
 		}
+
+		float max_current = max_pid_watt / (GET_INPUT_VOLTAGE() * actual_duty);
+
+		float new_m_iq_set = output * m_conf->lo_current_max;
 		
-		if(m_iq_set > m_conf->lo_current_max){
-			m_iq_set = m_conf->lo_current_max;
+		if(fabsf(new_m_iq_set) < max_current){
+			m_iq_set = new_m_iq_set;
+		}else{
+			if(new_m_iq_set < 0.0){
+				m_iq_set = -max_current;
+			}else{
+				m_iq_set = max_current;
+			}
 		}
-		
 	} else {
 		m_iq_set = output * m_conf->lo_current_max;
-	}
+	}*/
+	m_iq_set = output * m_conf->lo_current_max;
 }
 
 static void stop_pwm_hw(void) {
@@ -2282,8 +2259,8 @@ static float correct_hall(float angle, float speed, float dt) {
 	float rpm_abs = fabsf(speed / ((2.0 * M_PI) / 60.0));
 	static bool using_hall = true;
 
-	// Hysteresis 5 % of total speed
-	float hyst = m_conf->foc_sl_erpm * 0.05;
+	// Hysteresis 10 % of total speed
+	float hyst = m_conf->foc_sl_erpm * 0.10;
 	if (using_hall) {
 		if (rpm_abs > (m_conf->foc_sl_erpm + hyst)) {
 			using_hall = false;

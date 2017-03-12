@@ -450,7 +450,7 @@ static THD_FUNCTION(output_thread, arg) {
 
 					// Make the current directional
 					float msg_current = msg->current;
-					if (msg->duty < 0.0) {
+					if (msg->duty < 0) {
 						msg_current = -msg_current;
 					}
 

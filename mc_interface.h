@@ -42,7 +42,6 @@ void mc_interface_set_duty(float dutyCycle);
 void mc_interface_set_duty_noramp(float dutyCycle);
 void mc_interface_set_pid_speed(float rpm);
 void mc_interface_set_pid_speed_and_watt(float rpm, float new_max_pid_watt);
-void mc_interface_set_watt(float watt);
 int mc_interface_get_cruise_control_status(void);
 void mc_interface_set_cruise_control_status(int status); // 1 = active 0 = inactive
 void mc_interface_set_pid_pos(float pos);
