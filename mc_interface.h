@@ -41,6 +41,7 @@ mc_state mc_interface_get_state(void);
 void mc_interface_set_duty(float dutyCycle);
 void mc_interface_set_duty_noramp(float dutyCycle);
 void mc_interface_set_pid_speed(float rpm);
+float mc_interface_get_pid_speed(void); // get required speed for PID controller
 void mc_interface_set_pid_speed_and_watt(float rpm, float new_max_pid_watt);
 int mc_interface_get_cruise_control_status(void);
 void mc_interface_set_cruise_control_status(int status); // 1 = active 0 = inactive

@@ -586,6 +586,10 @@ void mcpwm_set_pid_speed(float rpm) {
 	}
 }
 
+float mcpwm_get_pid_speed(void) {
+  return speed_pid_set_rpm;
+}
+
 /**
  * Use PID rpm control. Note that this value has to be multiplied by half of
  * the number of motor poles.

@@ -181,7 +181,9 @@ void commands_process_packet(unsigned char *data, unsigned int len) {
 		buffer_append_float16(send_buffer, GET_INPUT_VOLTAGE(), 1e1, &ind);
 		buffer_append_float32(send_buffer, mc_interface_get_amp_hours(false), 1e4, &ind);
 		buffer_append_float32(send_buffer, mc_interface_get_amp_hours_charged(false), 1e4, &ind);
-		buffer_append_float32(send_buffer, mc_interface_get_watt_hours(false), 1e4, &ind);
+		// substitute the Wh value with the required PID speed in the csv output
+		//buffer_append_float32(send_buffer, mc_interface_get_watt_hours(false), 1e4, &ind);
+		buffer_append_float32(send_buffer, mc_interface_get_pid_speed(), 1e4, &ind);
 		buffer_append_float32(send_buffer, mc_interface_get_watt_hours_charged(false), 1e4, &ind);
 		buffer_append_int32(send_buffer, mc_interface_get_tachometer_value(false), &ind);
 		buffer_append_int32(send_buffer, mc_interface_get_tachometer_abs_value(false), &ind);

@@ -361,6 +361,27 @@ void mc_interface_set_pid_speed(float rpm) {
 	}
 }
 
+float mc_interface_get_pid_speed(void) {
+  if (mc_interface_try_input()) {
+    return 0.0;
+  }
+
+  switch (m_conf.motor_type) {
+  case MOTOR_TYPE_BLDC:
+  case MOTOR_TYPE_DC:
+    return mcpwm_get_pid_speed();
+    break;
+
+  case MOTOR_TYPE_FOC:
+    return mcpwm_foc_get_pid_speed();
+    break;
+
+  default:
+    return 0.0;
+    break;
+  }
+}
+
 void mc_interface_set_pid_speed_and_watt(float rpm, float new_max_pid_watt){
 	if (mc_interface_try_input()) {
 		return;
