@@ -529,7 +529,11 @@ void mcpwm_foc_set_pid_speed(float rpm) {
 }
 
 float mcpwm_foc_get_pid_speed(void) {
-  return m_speed_pid_set_rpm;
+  if (m_control_mode != CONTROL_MODE_SPEED) {
+    return 0.0;
+  } else {
+    return m_speed_pid_set_rpm;
+  }
 }
 
 /**
