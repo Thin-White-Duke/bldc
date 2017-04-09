@@ -41,14 +41,17 @@ mc_state mc_interface_get_state(void);
 void mc_interface_set_duty(float dutyCycle);
 void mc_interface_set_duty_noramp(float dutyCycle);
 void mc_interface_set_pid_speed(float rpm);
-void mc_interface_set_pid_speed_and_watt(float rpm, float new_max_pid_watt);
-int mc_interface_get_cruise_control_status(void);
-void mc_interface_set_cruise_control_status(int status); // 1 = active 0 = inactive
+void mc_interface_set_pid_speed_with_cruise_status(float rpm, ppm_cruise cruise_status);
+ppm_cruise mc_interface_get_cruise_control_status(void);
+void mc_interface_set_cruise_control_status(ppm_cruise status); // 1 = active 0 = inactive
 void mc_interface_set_pid_pos(float pos);
 void mc_interface_set_current(float current);
 void mc_interface_set_brake_current(float current);
+void mc_interface_set_servo(float servo_val, bool use_min_current);
+void mc_interface_set_brake_servo(float servo_val);
 void mc_interface_brake_now(void);
 void mc_interface_release_motor(void);
+float mc_interface_get_duty_cycle_for_watt_calculation(void);
 float mc_interface_get_duty_cycle_set(void);
 float mc_interface_get_duty_cycle_now(void);
 float mc_interface_get_sampling_frequency_now(void);
@@ -70,10 +73,6 @@ float mc_interface_read_reset_avg_motor_current(void);
 float mc_interface_read_reset_avg_input_current(void);
 float mc_interface_get_pid_pos_set(void);
 float mc_interface_get_pid_pos_now(void);
-float mc_interface_get_motor_voltage(void);
-float mc_interface_get_max_current_at_current_motor_voltage(void);
-float mc_interface_get_watt_now(void);
-
 float mc_interface_get_last_sample_adc_isr_duration(void);
 void mc_interface_sample_print_data(bool at_start, uint16_t len, uint8_t decimation);
 

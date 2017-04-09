@@ -56,6 +56,7 @@ static volatile float dutycycle_set;
 static volatile float dutycycle_now;
 static volatile float rpm_now;
 static volatile float speed_pid_set_rpm;
+static volatile ppm_cruise speed_pid_cruise_control_type;
 static volatile float pos_pid_set_pos;
 static volatile float current_set;
 static volatile int tachometer;
@@ -68,7 +69,6 @@ static volatile int curr0_offset;
 static volatile int curr1_offset;
 static volatile mc_state state;
 static volatile mc_control_mode control_mode;
-static volatile float max_pid_watt;
 static volatile float last_current_sample;
 static volatile float last_current_sample_filtered;
 static volatile float mcpwm_detect_currents_avg[6];
@@ -177,6 +177,7 @@ void mcpwm_init(volatile mc_configuration *configuration) {
 	dutycycle_set = 0.0;
 	dutycycle_now = 0.0;
 	speed_pid_set_rpm = 0.0;
+	speed_pid_cruise_control_type = CRUISE_CONTROL_MOTOR_SETTINGS;
 	pos_pid_set_pos = 0.0;
 	current_set = 0.0;
 	tachometer = 0;
@@ -184,7 +185,6 @@ void mcpwm_init(volatile mc_configuration *configuration) {
 	tachometer_for_direction = 0;
 	state = MC_STATE_OFF;
 	control_mode = CONTROL_MODE_NONE;
-	max_pid_watt = 0;
 	last_current_sample = 0.0;
 	last_current_sample_filtered = 0.0;
 	switching_frequency_now = MCPWM_SWITCH_FREQUENCY_MAX;
@@ -577,26 +577,27 @@ void mcpwm_set_duty_noramp(float dutyCycle) {
  * The electrical RPM goal value to use.
  */
 void mcpwm_set_pid_speed(float rpm) {
+	if (fabsf(rpm) <conf->s_pid_min_erpm) {
+		mcpwm_set_duty(0.0);
+		return;
+	}
 	control_mode = CONTROL_MODE_SPEED;
 	speed_pid_set_rpm = rpm;
-	max_pid_watt = 0;
+	speed_pid_cruise_control_type = CRUISE_CONTROL_MOTOR_SETTINGS;
 	
 	if (state != MC_STATE_RUNNING) {
 		set_duty_cycle_hl(conf->l_min_duty);
 	}
 }
 
-/**
- * Use PID rpm control. Note that this value has to be multiplied by half of
- * the number of motor poles.
- *
- * @param rpm
- * The electrical RPM goal value to use.
- */
-void mcpwm_set_pid_speed_and_watt(float rpm, float new_max_pid_watt) {
+void mcpwm_set_pid_speed_with_cruise_status(float rpm, ppm_cruise cruise_status) {
+	if (fabsf(rpm) <conf->s_pid_min_erpm) {
+		mcpwm_set_duty(0.0);
+		return;
+	}
 	control_mode = CONTROL_MODE_SPEED;
 	speed_pid_set_rpm = rpm;
-	max_pid_watt = new_max_pid_watt;
+	speed_pid_cruise_control_type = cruise_status;
 	
 	if (state != MC_STATE_RUNNING) {
 		set_duty_cycle_hl(conf->l_min_duty);
@@ -1108,6 +1109,7 @@ static void run_pid_control_speed(void) {
 	if (fabsf(speed_pid_set_rpm) <conf->s_pid_min_erpm) {
 		i_term = 0.0;
 		prev_error = 0;
+		current_set = 0.0;
 		return;
 	}
 
@@ -1131,7 +1133,7 @@ static void run_pid_control_speed(void) {
 	// Calculate output
 	float output = p_term + i_term + d_term;
 
-	if (conf->s_pid_breaking_enabled) {
+	if ((speed_pid_cruise_control_type == CRUISE_CONTROL_MOTOR_SETTINGS && conf->s_pid_breaking_enabled) || speed_pid_cruise_control_type == CRUISE_CONTROL_BRAKING_ENABLED) {
 		utils_truncate_number(&output, -1.0, 1.0);
 	} else {
 		if(speed_pid_set_rpm < 0.0){
@@ -1141,23 +1143,8 @@ static void run_pid_control_speed(void) {
 		}
 	}
 		
-	/*if (max_pid_watt != 0) {
-		const float actual_duty = fabsf(dutycycle_now);
-
-		if (actual_duty < conf->l_min_duty){
-			current_set = output * (max_pid_watt / fabsf(GET_INPUT_VOLTAGE() * conf->l_min_duty));
-		} else {
-			current_set = output * (max_pid_watt / fabsf(GET_INPUT_VOLTAGE() * actual_duty));
-		}
-		
-		if(current_set > conf->lo_current_max){
-			current_set = conf->lo_current_max;
-		}
-	} else {
-		current_set = output * conf->lo_current_max;
-	}*/
-
 	current_set = output * conf->lo_current_max;
+	
 }
 
 static void run_pid_control_pos(float dt) {

@@ -235,7 +235,7 @@
 #define MCCONF_FOC_MOTOR_FLUX_LINKAGE	0.00245
 #endif
 #ifndef MCCONF_FOC_OBSERVER_GAIN
-#define MCCONF_FOC_OBSERVER_GAIN		9e7		// Can be something like 600 / L
+#define MCCONF_FOC_OBSERVER_GAIN		9e7	// Can be something like 600 / L
 #endif
 #ifndef MCCONF_FOC_DUTY_DOWNRAMP_KP
 #define MCCONF_FOC_DUTY_DOWNRAMP_KP		10.0	// PI controller for duty control when decreasing the duty
@@ -247,16 +247,16 @@
 #define MCCONF_FOC_OPENLOOP_RPM			1200.0	// Openloop RPM (sensorless low speed or when finding index pulse)
 #endif
 #ifndef MCCONF_FOC_SL_OPENLOOP_HYST
-#define MCCONF_FOC_SL_OPENLOOP_HYST		0.5		// Time below min RPM to activate openloop (s)
+#define MCCONF_FOC_SL_OPENLOOP_HYST		0.5	// Time below min RPM to activate openloop (s)
 #endif
 #ifndef MCCONF_FOC_SL_OPENLOOP_TIME
-#define MCCONF_FOC_SL_OPENLOOP_TIME		0.5		// Time to remain in openloop (s)
+#define MCCONF_FOC_SL_OPENLOOP_TIME		0.5	// Time to remain in openloop (s)
 #endif
 #ifndef MCCONF_FOC_SL_D_CURRENT_DUTY
-#define MCCONF_FOC_SL_D_CURRENT_DUTY	0.0		// Inject d-axis current below this duty cycle in sensorless more
+#define MCCONF_FOC_SL_D_CURRENT_DUTY		0.0	// Inject d-axis current below this duty cycle in sensorless more
 #endif
 #ifndef MCCONF_FOC_SL_D_CURRENT_FACTOR
-#define MCCONF_FOC_SL_D_CURRENT_FACTOR	0.0		// Maximum q-axis current factor
+#define MCCONF_FOC_SL_D_CURRENT_FACTOR		0.0	// Maximum q-axis current factor
 #endif
 #ifndef MCCONF_FOC_HALL_TAB_0
 #define MCCONF_FOC_HALL_TAB_0			255
@@ -283,7 +283,7 @@
 #define MCCONF_FOC_HALL_TAB_7			255
 #endif
 #ifndef MCCONF_FOC_SL_ERPM
-#define MCCONF_FOC_SL_ERPM				2500.0	// ERPM above which only the observer is used
+#define MCCONF_FOC_SL_ERPM			2500.0	// ERPM above which only the observer is used
 #endif
 
 // Misc
@@ -291,19 +291,25 @@
 #define MCCONF_M_FAULT_STOP_TIME		3000	// Ignore commands for this duration in msec when faults occur
 #endif
 #ifndef MCCONF_M_RAMP_STEP
-#define MCCONF_M_RAMP_STEP				0.02	// Duty cycle ramping step (1000 times/sec) at maximum duty cycle
+#define MCCONF_M_RAMP_STEP			0.02	// Duty cycle ramping step (1000 times/sec) at maximum duty cycle
 #endif
 #ifndef MCCONF_M_RAMP_STEP_RPM_LIM
 #define MCCONF_M_RAMP_STEP_RPM_LIM		0.0005	// Ramping step when limiting the RPM
 #endif
 #ifndef MCCONF_M_CURRENT_BACKOFF_GAIN
-#define MCCONF_M_CURRENT_BACKOFF_GAIN	0.5		// The error gain of the current limiting algorithm
+#define MCCONF_M_CURRENT_BACKOFF_GAIN		0.5		// The error gain of the current limiting algorithm
 #endif
 #ifndef MCCONF_M_ENCODER_COUNTS
 #define MCCONF_M_ENCODER_COUNTS			8192	// The number of encoder counts
 #endif
 #ifndef MCCONF_M_SENSOR_PORT_MODE
 #define MCCONF_M_SENSOR_PORT_MODE		SENSOR_PORT_MODE_HALL // The mode of the hall_encoder port
+#endif
+#ifndef MCCONF_USE_MAX_WATT_LIMIT
+#define MCCONF_USE_MAX_WATT_LIMIT		false
+#endif
+#ifndef MCCONF_WATT_MAX
+#define MCCONF_WATT_MAX				1000.0	// Input current limit in Amperes (Upper)
 #endif
 
 #endif /* MCCONF_DEFAULT_H_ */

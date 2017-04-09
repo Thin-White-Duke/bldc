@@ -39,7 +39,7 @@ void mcpwm_foc_stop_pwm(void);
 void mcpwm_foc_set_duty(float dutyCycle);
 void mcpwm_foc_set_duty_noramp(float dutyCycle);
 void mcpwm_foc_set_pid_speed(float rpm);
-void mcpwm_foc_set_pid_speed_and_watt(float rpm, float new_max_pid_watt);
+void mcpwm_foc_set_pid_speed_with_cruise_status(float rpm, ppm_cruise cruise_status);
 void mcpwm_foc_set_pid_pos(float pos);
 void mcpwm_foc_set_current(float current);
 void mcpwm_foc_set_brake_current(float current);

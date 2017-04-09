@@ -38,6 +38,13 @@ typedef enum {
 } mc_state;
 
 typedef enum {
+   CRUISE_CONTROL_MOTOR_SETTINGS = 0,
+   CRUISE_CONTROL_BRAKING_DISABLED,
+   CRUISE_CONTROL_BRAKING_ENABLED,
+   CRUISE_CONTROL_INACTIVE
+} ppm_cruise;
+
+typedef enum {
 	PWM_MODE_NONSYNCHRONOUS_HISW = 0, // This mode is not recommended
 	PWM_MODE_SYNCHRONOUS, // The recommended and most tested mode
 	PWM_MODE_BIPOLAR // Some glitches occasionally, can kill MOSFETs
@@ -123,6 +130,8 @@ typedef struct {
 	float l_in_current_max;
 	float l_in_current_min;
 	float l_abs_current_max;
+	bool use_max_watt_limit;
+	float watts_max;
 	float l_min_erpm;
 	float l_max_erpm;
 	float l_max_erpm_fbrake;
@@ -229,7 +238,8 @@ typedef enum {
 	PPM_CTRL_TYPE_PID_NOREV,
 	PPM_CTRL_TYPE_WATT_NOREV_BRAKE,
 	PPM_CTRL_TYPE_PID_NOACCELERATION,
-	PPM_CTRL_TYPE_CRUISE_CONTROL_SECONDARY_CHANNEL
+	PPM_CTRL_TYPE_CRUISE_CONTROL_SECONDARY_CHANNEL,
+	PPM_CTRL_TYPE_WATT
 } ppm_control_type;
 
 typedef struct {
@@ -245,11 +255,12 @@ typedef struct {
 	bool multi_esc;
 	bool tc;
 	float tc_max_diff;
-    float pulse_center;
-    float tc_offset;
-    bool max_watt_enabled;
-    float max_watt;
-    float max_watt_ramp_factor;
+	float pulse_center;
+	float tc_offset;
+	ppm_cruise cruise_left;
+	ppm_cruise cruise_right;
+	bool max_erpm_for_dir_active;
+	float max_erpm_for_dir;
 } ppm_config;
 
 // ADC control types
@@ -305,9 +316,7 @@ typedef struct {
 	bool tc;
 	float tc_max_diff;
 	float tc_offset;
-    bool max_watt_enabled;
-    float max_watt;
-    float max_watt_ramp_factor;
+	bool buttons_mirrored;
 } chuk_config;
 
 // NRF Datatypes
@@ -470,7 +479,8 @@ typedef enum {
 	CAN_PACKET_PROCESS_RX_BUFFER,
 	CAN_PACKET_PROCESS_SHORT_BUFFER,
 	CAN_PACKET_STATUS,
-	CAN_PACKET_SET_RPM_AND_WATT
+	CAN_PACKET_SET_SERVO,
+	CAN_PACKET_SET_BRAKE_SERVO
 } CAN_PACKET_ID;
 
 // Logged fault data
@@ -518,7 +528,7 @@ typedef struct {
 	float rpm;
 	float current;
 	int8_t duty;
-	int8_t cruise_control_status;
+	ppm_cruise cruise_control_status;
 } can_status_msg;
 
 typedef struct {
@@ -546,20 +556,20 @@ typedef struct {
 	float temp_mos2;
 	float temp_mos3;
 	float temp_mos4;
-    float temp_mos5;
-    float temp_mos6;
-    float temp_pcb;
-    float current_motor;
-    float current_in;
-    float rpm;
-    float duty_now;
-    float amp_hours;
-    float amp_hours_charged;
-    float watt_hours;
-    float watt_hours_charged;
-    int tachometer;
-    int tachometer_abs;
-    mc_fault_code fault_code;
+	float temp_mos5;
+	float temp_mos6;
+	float temp_pcb;
+	float current_motor;
+	float current_in;
+	float rpm;
+	float duty_now;
+	float amp_hours;
+	float amp_hours_charged;
+	float watt_hours;
+	float watt_hours_charged;
+	int tachometer;
+	int tachometer_abs;
+	mc_fault_code fault_code;
 } mc_values;
 
 #endif /* DATATYPES_H_ */

@@ -252,7 +252,7 @@ static THD_FUNCTION(output_thread, arg) {
 			continue;
 		}
 
-		if (chuck_d.bt_z && !was_z && (config.ctrl_type == CHUK_CTRL_TYPE_CURRENT || config.ctrl_type == CHUK_CTRL_TYPE_WATT) &&
+		if ((config.buttons_mirrored ? chuck_d.bt_c : chuck_d.bt_z) && !was_z && (config.ctrl_type == CHUK_CTRL_TYPE_CURRENT || config.ctrl_type == CHUK_CTRL_TYPE_WATT) &&
 				fabsf(current_now) < MAX_CURR_DIFFERENCE) {
 			if (is_reverse) {
 				is_reverse = false;
@@ -261,7 +261,7 @@ static THD_FUNCTION(output_thread, arg) {
 			}
 		}
 
-		was_z = chuck_d.bt_z;
+		was_z = config.buttons_mirrored ? chuck_d.bt_c : chuck_d.bt_z;
 
 		led_external_set_reversed(is_reverse);
 
@@ -314,7 +314,7 @@ static THD_FUNCTION(output_thread, arg) {
 		}
 		rpm_filtered /= RPM_FILTER_SAMPLES;
 
-		if (chuck_d.bt_c) {
+		if (config.buttons_mirrored ? chuck_d.bt_z : chuck_d.bt_c) {
 			static float pid_rpm = 0.0;
 
 			if (!was_pid) {
@@ -354,11 +354,7 @@ static THD_FUNCTION(output_thread, arg) {
 				break;
 			case CHUK_CTRL_TYPE_WATT:
 			case CHUK_CTRL_TYPE_WATT_NOREV:
-				if (config.max_watt_enabled) {
-					mc_interface_set_pid_speed_and_watt(pid_rpm, config.max_watt);
-				} else {
-					mc_interface_set_pid_speed(pid_rpm);
-				}
+				mc_interface_set_pid_speed(pid_rpm);
 				break;
 			default:
 				break;
@@ -402,19 +398,12 @@ static THD_FUNCTION(output_thread, arg) {
 		case CHUK_CTRL_TYPE_WATT:
 		case CHUK_CTRL_TYPE_WATT_NOREV:
 			if (out_val >= 0.0) {
-				if (config.max_watt_enabled) {
-					current = out_val * (config.max_watt / mc_interface_get_motor_voltage());
+				if (mcconf->use_max_watt_limit) {
+					current = utils_smallest_of_2(out_val * mcconf->l_current_max, 
+							out_val * (mcconf->watts_max / GET_INPUT_VOLTAGE() / mc_interface_get_duty_cycle_for_watt_calculation()));
 				} else {
-					current = out_val * mc_interface_get_max_current_at_current_motor_voltage();
-				}
-				
-				float current_by_max_motor_current = out_val * mcconf->l_current_max * config.max_watt_ramp_factor;
-				if (current_by_max_motor_current < current){
-					current = current_by_max_motor_current;
-				}
-				
-				if (current > mcconf->l_current_max) {
-					current = mcconf->l_current_max;
+					current = utils_smallest_of_2(out_val * mcconf->l_current_max, 
+							out_val * mcconf->l_in_current_max / mc_interface_get_duty_cycle_for_watt_calculation());
 				}
 			} else {
 				current = out_val * fabsf(mcconf->l_current_min);
@@ -460,12 +449,17 @@ static THD_FUNCTION(output_thread, arg) {
 				}
 			}
 		}
-
+		
 		// Apply ramping
 		const float current_range = mcconf->l_current_max + fabsf(mcconf->l_current_min);
 		const float ramp_time = fabsf(current) > fabsf(prev_current) ? config.ramp_time_pos : config.ramp_time_neg;
-
-		if (ramp_time > 0.01) {
+			
+		if (ramp_time > 0.01 && current != 0.0) {
+			
+            if (prev_current * current < 0.0) {
+                prev_current = 0.0;
+            }
+			
 			const float ramp_step = ((float)OUTPUT_ITERATION_TIME_MS * current_range) / (ramp_time * 1000.0);
 
 			float current_goal = prev_current;
@@ -492,38 +486,55 @@ static THD_FUNCTION(output_thread, arg) {
 				current_goal = goal_tmp2;
 			}
 
+			out_val = out_val / current * current_goal;
+						
 			current = current_goal;
 		}
 
 		prev_current = current;
-
+		
 		if (current < 0.0) {
+			
 			mc_interface_set_brake_current(current);
 
-			// Send brake command to all ESCs seen recently on the CAN bus
-			for (int i = 0;i < CAN_STATUS_MSGS_TO_STORE;i++) {
-				can_status_msg *msg = comm_can_get_status_msg_index(i);
+			if (config.multi_esc) {
+				// Send brake command to all ESCs seen recently on the CAN bus
+				for (int i = 0;i < CAN_STATUS_MSGS_TO_STORE;i++) {
+					can_status_msg *msg = comm_can_get_status_msg_index(i);
 
-				if (msg->id >= 0 && UTILS_AGE_S(msg->rx_time) < MAX_CAN_AGE) {
-					comm_can_set_current_brake(msg->id, current);
+					if (msg->id >= 0 && UTILS_AGE_S(msg->rx_time) < MAX_CAN_AGE) {
+						if (config.ctrl_type == CHUK_CTRL_TYPE_WATT || config.ctrl_type == CHUK_CTRL_TYPE_WATT_NOREV) {
+							comm_can_set_brake_servo(msg->id, out_val);
+						} else {
+							comm_can_set_current_brake(msg->id, current);
+						}
+					}
 				}
 			}
 		} else {
+						
+			bool use_min_current = false;
 			// Apply soft RPM limit
-			if (rpm_lowest > config.rpm_lim_end && current > 0.0) {
-				current = mcconf->cc_min_current;
-			} else if (rpm_lowest > config.rpm_lim_start && current > 0.0) {
-				current = utils_map(rpm_lowest, config.rpm_lim_start, config.rpm_lim_end, current, mcconf->cc_min_current);
-			} else if (rpm_lowest < -config.rpm_lim_end && current < 0.0) {
-				current = mcconf->cc_min_current;
-			} else if (rpm_lowest < -config.rpm_lim_start && current < 0.0) {
-				rpm_lowest = -rpm_lowest;
-				current = -current;
-				current = utils_map(rpm_lowest, config.rpm_lim_start, config.rpm_lim_end, current, mcconf->cc_min_current);
-				current = -current;
+			if (rpm_lowest > config.rpm_lim_end) {
+				if (out_val > 0.0) {
+					use_min_current = true;
+					out_val = 0.000001; // make sure min current ius used
+				}
+				if (current > 0.0) {
+					current = mcconf->cc_min_current;	
+				}
+			} else if (rpm_lowest > config.rpm_lim_start) {
+				if (out_val > 0.0) {
+					use_min_current = true;
+					out_val = utils_map(rpm_lowest, config.rpm_lim_start, config.rpm_lim_end, out_val, 0.000001);
+				}
+				if (current > 0.0) {
+					current = utils_highest_of_2(utils_map(rpm_lowest, config.rpm_lim_start, config.rpm_lim_end, current, 0.0), mcconf->cc_min_current);
+				}
 			}
 
 			float current_out = current;
+			float servo_val_out = out_val;
 
 			// Traction control
 			if (config.multi_esc) {
@@ -538,25 +549,39 @@ static THD_FUNCTION(output_thread, arg) {
 							}
 
 							float diff = rpm_tmp - rpm_lowest;
-							current_out = utils_map(diff, 0.0, config.tc_max_diff, current, 0.0);
-							if (current_out < mcconf->cc_min_current) {
-								current_out = 0.0;
+							
+							if (diff > config.tc_offset) {
+								current_out = utils_map(diff - config.tc_offset, 0.0, config.tc_max_diff - config.tc_offset, current, 0.0);
+								servo_val_out = utils_map(diff - config.tc_offset, 0.0, config.tc_max_diff - config.tc_offset, out_val, 0.0);
+							} else {
+								current_out = current;
+								servo_val_out = out_val;
 							}
 						}
 
 						if (is_reverse) {
-							comm_can_set_current(msg->id, -current_out);
+							if (config.ctrl_type == CHUK_CTRL_TYPE_WATT || config.ctrl_type == CHUK_CTRL_TYPE_WATT_NOREV) {
+								comm_can_set_servo(msg->id, -servo_val_out, use_min_current);
+							} else {
+								comm_can_set_current(msg->id, -current_out);
+							}
 						} else {
-							comm_can_set_current(msg->id, current_out);
+							if (config.ctrl_type == CHUK_CTRL_TYPE_WATT || config.ctrl_type == CHUK_CTRL_TYPE_WATT_NOREV) {
+								comm_can_set_servo(msg->id, servo_val_out, use_min_current);
+							} else {
+								comm_can_set_current(msg->id, current_out);
+							}
 						}
 					}
 				}
 
 				if (config.tc) {
 					float diff = rpm_local - rpm_lowest;
-					current_out = utils_map(diff, 0.0, config.tc_max_diff, current, 0.0);
-					if (current_out < mcconf->cc_min_current) {
-						current_out = 0.0;
+					
+					if (diff > config.tc_offset) {
+						current_out = utils_map(diff - config.tc_offset, 0.0, config.tc_max_diff - config.tc_offset, current, 0.0);
+					} else {
+						current_out = current;
 					}
 				}
 			}

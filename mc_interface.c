@@ -58,8 +58,7 @@ static volatile float m_watt_seconds;
 static volatile float m_watt_seconds_charged;
 static volatile float m_position_set;
 // new
-static volatile float max_watt;
-static volatile int is_cruise_control_active;
+static volatile ppm_cruise cruise_control_status;
 
 // Sampling variables
 #define ADC_SAMPLE_MAX_LEN		2000
@@ -111,8 +110,7 @@ void mc_interface_init(mc_configuration *configuration) {
 	m_watt_seconds_charged = 0.0;
 	m_position_set = 0.0;
 	m_last_adc_duration_sample = 0.0;
-	max_watt = 1000.0;
-	is_cruise_control_active = 0;
+	cruise_control_status = CRUISE_CONTROL_INACTIVE;
 
 	m_sample_len = 1000;
 	m_sample_int = 1;
@@ -361,7 +359,7 @@ void mc_interface_set_pid_speed(float rpm) {
 	}
 }
 
-void mc_interface_set_pid_speed_and_watt(float rpm, float new_max_pid_watt){
+void mc_interface_set_pid_speed_with_cruise_status(float rpm, ppm_cruise cruise_status) {
 	if (mc_interface_try_input()) {
 		return;
 	}
@@ -369,11 +367,11 @@ void mc_interface_set_pid_speed_and_watt(float rpm, float new_max_pid_watt){
 	switch (m_conf.motor_type) {
 	case MOTOR_TYPE_BLDC:
 	case MOTOR_TYPE_DC:
-		mcpwm_set_pid_speed_and_watt(rpm, new_max_pid_watt);
+		mcpwm_set_pid_speed_with_cruise_status(rpm, cruise_status);
 		break;
 
 	case MOTOR_TYPE_FOC:
-		mcpwm_foc_set_pid_speed_and_watt(rpm, new_max_pid_watt);
+		mcpwm_foc_set_pid_speed_with_cruise_status(rpm, cruise_status);
 		break;
 
 	default:
@@ -381,13 +379,13 @@ void mc_interface_set_pid_speed_and_watt(float rpm, float new_max_pid_watt){
 	}
 }
 
-int mc_interface_get_cruise_control_status(void){
-	return is_cruise_control_active;
+ppm_cruise mc_interface_get_cruise_control_status(void){
+	return cruise_control_status;
 }
 
 // true = active false = inactive
-void mc_interface_set_cruise_control_status(int status){
-	is_cruise_control_active = status;
+void mc_interface_set_cruise_control_status(ppm_cruise status){
+	cruise_control_status = status;
 }
 
 void mc_interface_set_pid_pos(float pos) {
@@ -452,6 +450,74 @@ void mc_interface_set_brake_current(float current) {
 	}
 }
 
+void mc_interface_set_servo(float servo_val, bool use_min_current) {
+	if (mc_interface_try_input()) {
+		return;
+	}
+
+	float current = 0.0;
+
+	if (servo_val > 0.0){
+		if (m_conf.use_max_watt_limit) {
+			current = utils_smallest_of_2(servo_val * m_conf.l_current_max, 
+					servo_val * (m_conf.watts_max / GET_INPUT_VOLTAGE() / mc_interface_get_duty_cycle_for_watt_calculation()));
+		} else {
+			current = utils_smallest_of_2(servo_val * m_conf.l_current_max, 
+					servo_val * m_conf.l_in_current_max / mc_interface_get_duty_cycle_for_watt_calculation());
+		}
+		if (use_min_current) {
+			current = utils_highest_of_2(current, m_conf.cc_min_current);
+		}
+	} else if (servo_val < 0.0){
+		if (m_conf.use_max_watt_limit) {
+			current = -utils_smallest_of_2(fabsf(servo_val * m_conf.l_current_min), 
+					fabsf(servo_val * (m_conf.watts_max / GET_INPUT_VOLTAGE() / mc_interface_get_duty_cycle_for_watt_calculation())));
+		} else {
+			current = -utils_smallest_of_2(fabsf(servo_val * m_conf.l_current_min), 
+					fabsf(servo_val * m_conf.l_in_current_max / mc_interface_get_duty_cycle_for_watt_calculation()));
+		}
+		if (use_min_current) {
+			current = utils_smallest_of_2(current, -m_conf.cc_min_current);
+		}
+	}
+	
+	switch (m_conf.motor_type) {
+	case MOTOR_TYPE_BLDC:
+	case MOTOR_TYPE_DC:
+		mcpwm_set_current(current);
+		break;
+
+	case MOTOR_TYPE_FOC:		
+		mcpwm_foc_set_current(current);
+		break;
+
+	default:
+		break;
+	}
+}
+
+void mc_interface_set_brake_servo(float servo_val) {
+	if (mc_interface_try_input()) {
+		return;
+	}
+
+	float current = servo_val * fabsf(m_conf.l_current_min);
+	
+	switch (m_conf.motor_type) {
+	case MOTOR_TYPE_BLDC:
+	case MOTOR_TYPE_DC:
+		mcpwm_set_brake_current(current);
+		break;
+
+	case MOTOR_TYPE_FOC:
+		mcpwm_foc_set_brake_current(current);
+		break;
+
+	default:
+		break;
+	}
+}
+
 void mc_interface_brake_now(void) {
 	mc_interface_set_duty(0.0);
 }
@@ -461,6 +527,27 @@ void mc_interface_brake_now(void) {
  */
 void mc_interface_release_motor(void) {
 	mc_interface_set_current(0.0);
+}
+
+float mc_interface_get_duty_cycle_for_watt_calculation(void) {
+	float actual_duty;
+	
+	if (m_conf.motor_type == MOTOR_TYPE_FOC) {
+		float battery_current = mcpwm_foc_get_tot_current_in_filtered();
+		float motor_current = mcpwm_foc_get_tot_current_filtered();
+		
+		if (battery_current != 0.0 && motor_current != 0.0) {
+			actual_duty = fabsf(battery_current / motor_current);
+		} else {
+			actual_duty = fabsf(mcpwm_foc_get_duty_cycle_now()) * 0.86602540378;
+		}
+	} else {
+		actual_duty = fabsf(mc_interface_get_duty_cycle_now());
+	}
+	if (actual_duty < m_conf.l_min_duty) {
+		return m_conf.l_min_duty;
+	}
+	return actual_duty;
 }
 
 /**
@@ -838,35 +925,6 @@ float mc_interface_get_pid_pos_now(void) {
 	}
 
 	return ret;
-}
-
-//new
-float mc_interface_get_motor_voltage(void) {
-	const float actual_duty = fabsf(mc_interface_get_duty_cycle_now());
-	if (actual_duty < m_conf.l_min_duty){
-		return GET_INPUT_VOLTAGE() * m_conf.l_min_duty;
-	}else {
-		return GET_INPUT_VOLTAGE() * actual_duty;	
-	}
-}
-
-float mc_interface_get_max_current_at_current_motor_voltage(void) {
-	const float input_voltage = GET_INPUT_VOLTAGE();
-	const float actual_duty = fabsf(mc_interface_get_duty_cycle_now());
-	if (actual_duty < m_conf.l_min_duty){
-		return (input_voltage * m_conf.l_in_current_max) / (input_voltage * m_conf.l_min_duty);
-	}else {
-		return (input_voltage * m_conf.l_in_current_max) / (input_voltage * actual_duty);
-	}	
-}
-
-float mc_interface_get_watt_now(void) {
-	return mc_interface_get_tot_current_in_filtered() * GET_INPUT_VOLTAGE();
-}
-// end new
-
-float mc_interface_get_max_watt(void) {
-	return max_watt;
 }
 
 float mc_interface_get_last_sample_adc_isr_duration(void) {

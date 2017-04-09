@@ -51,6 +51,7 @@ typedef struct {
 	float i_abs;
 	float i_abs_filter;
 	float i_bus;
+	float i_bus_filter;
 	float v_bus;
 	float v_alpha;
 	float v_beta;
@@ -76,7 +77,6 @@ typedef struct {
 static volatile mc_configuration *m_conf;
 static volatile mc_state m_state;
 static volatile mc_control_mode m_control_mode;
-static volatile float max_pid_watt;
 static volatile motor_state_t m_motor_state;
 static volatile int m_curr0_sum;
 static volatile int m_curr1_sum;
@@ -92,6 +92,7 @@ static volatile bool m_dccal_done;
 static volatile bool m_output_on;
 static volatile float m_pos_pid_set;
 static volatile float m_speed_pid_set_rpm;
+static volatile ppm_cruise m_speed_pid_cruise_control_type;
 static volatile float m_phase_now_observer;
 static volatile float m_phase_now_observer_override;
 static volatile bool m_phase_observer_override;
@@ -194,7 +195,6 @@ void mcpwm_foc_init(volatile mc_configuration *configuration) {
 	m_conf = configuration;
 	m_state = MC_STATE_OFF;
 	m_control_mode = CONTROL_MODE_NONE;
-	max_pid_watt = 0;
 	m_curr0_sum = 0;
 	m_curr1_sum = 0;
 	m_curr_samples = 0;
@@ -207,6 +207,7 @@ void mcpwm_foc_init(volatile mc_configuration *configuration) {
 	m_output_on = false;
 	m_pos_pid_set = 0.0;
 	m_speed_pid_set_rpm = 0.0;
+	m_speed_pid_cruise_control_type = CRUISE_CONTROL_MOTOR_SETTINGS;
 	m_phase_now_observer = 0.0;
 	m_phase_now_observer_override = 0.0;
 	m_phase_observer_override = false;
@@ -519,26 +520,28 @@ void mcpwm_foc_set_duty_noramp(float dutyCycle) {
  * The electrical RPM goal value to use.
  */
 void mcpwm_foc_set_pid_speed(float rpm) {
+	// Too low RPM set. Reset state and return.
+	if (fabsf(rpm) < m_conf->s_pid_min_erpm) {
+		mcpwm_foc_set_duty(0.0);
+		return;
+	}
 	m_control_mode = CONTROL_MODE_SPEED;
 	m_speed_pid_set_rpm = rpm;
-	max_pid_watt = 0;
+	m_speed_pid_cruise_control_type = CRUISE_CONTROL_MOTOR_SETTINGS;
 
 	if (m_state != MC_STATE_RUNNING) {
 		m_state = MC_STATE_RUNNING;
 	}
 }
 
-/**
- * Use PID rpm control. Note that this value has to be multiplied by half of
- * the number of motor poles.
- *
- * @param rpm
- * The electrical RPM goal value to use.
- */
-void mcpwm_foc_set_pid_speed_and_watt(float rpm, float new_max_pid_watt) {
+void mcpwm_foc_set_pid_speed_with_cruise_status(float rpm, ppm_cruise cruise_status) {
+	if (fabsf(rpm) < m_conf->s_pid_min_erpm) {
+		mcpwm_foc_set_duty(0.0);
+		return;
+	}
 	m_control_mode = CONTROL_MODE_SPEED;
 	m_speed_pid_set_rpm = rpm;
-	max_pid_watt = new_max_pid_watt;
+	m_speed_pid_cruise_control_type = cruise_status;
 
 	if (m_state != MC_STATE_RUNNING) {
 		m_state = MC_STATE_RUNNING;
@@ -735,7 +738,7 @@ float mcpwm_foc_get_tot_current_in(void) {
  * The filtered input current.
  */
 float mcpwm_foc_get_tot_current_in_filtered(void) {
-	return m_motor_state.i_bus; // TODO: Calculate filtered current?
+	return m_motor_state.i_bus_filter; // TODO: Calculate filtered current?
 }
 
 /**
@@ -1626,6 +1629,7 @@ void mcpwm_foc_adc_inj_int_handler(void) {
 		m_motor_state.id_filter = 0.0;
 		m_motor_state.iq_filter = 0.0;
 		m_motor_state.i_bus = 0.0;
+		m_motor_state.i_bus_filter = 0.0;
 		m_motor_state.i_abs = 0.0;
 		m_motor_state.i_abs_filter = 0.0;
 
@@ -1894,6 +1898,7 @@ static void control_current(volatile motor_state_t *state_m, float dt) {
 
 	// TODO: Have a look at this?
 	state_m->i_bus = state_m->mod_d * state_m->id + state_m->mod_q * state_m->iq;
+	UTILS_LP_FAST(state_m->i_bus_filter, state_m->i_bus, MCPWM_FOC_I_FILTER_CONST);
 	state_m->i_abs = sqrtf(state_m->id * state_m->id + state_m->iq * state_m->iq);
 	state_m->i_abs_filter = sqrtf(state_m->id_filter * state_m->id_filter + state_m->iq_filter * state_m->iq_filter);
 
@@ -2137,6 +2142,7 @@ static void run_pid_control_speed(float dt) {
 	if (fabsf(m_speed_pid_set_rpm) < m_conf->s_pid_min_erpm) {
 		i_term = 0.0;
 		prev_error = 0;
+		m_iq_set = 0.0;
 		return;
 	}
 
@@ -2160,7 +2166,7 @@ static void run_pid_control_speed(float dt) {
 	// Calculate output
 	float output = p_term + i_term + d_term;
 
-	if (m_conf->s_pid_breaking_enabled) {
+	if ((m_speed_pid_cruise_control_type == CRUISE_CONTROL_MOTOR_SETTINGS && m_conf->s_pid_breaking_enabled) || m_speed_pid_cruise_control_type == CRUISE_CONTROL_BRAKING_ENABLED) {
 		utils_truncate_number(&output, -1.0, 1.0);
 	} else {
 		if(m_speed_pid_set_rpm < 0.0){
@@ -2169,29 +2175,7 @@ static void run_pid_control_speed(float dt) {
 			utils_truncate_number(&output, 0.0, 1.0);
 		}
 	}
-
-	/*if (max_pid_watt != 0) {
-		float actual_duty = fabsf(m_motor_state.duty_now);
-		if (actual_duty < m_conf->l_min_duty){
-			actual_duty = m_conf->l_min_duty;	
-		}
-
-		float max_current = max_pid_watt / (GET_INPUT_VOLTAGE() * actual_duty);
-
-		float new_m_iq_set = output * m_conf->lo_current_max;
-		
-		if(fabsf(new_m_iq_set) < max_current){
-			m_iq_set = new_m_iq_set;
-		}else{
-			if(new_m_iq_set < 0.0){
-				m_iq_set = -max_current;
-			}else{
-				m_iq_set = max_current;
-			}
-		}
-	} else {
-		m_iq_set = output * m_conf->lo_current_max;
-	}*/
+	
 	m_iq_set = output * m_conf->lo_current_max;
 }
 

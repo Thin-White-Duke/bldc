@@ -227,6 +227,73 @@ float utils_middle_of_3(float a, float b, float c) {
 }
 
 /**
+ * Get the smallest value of two values
+ *
+ * @param a
+ * First value
+ *
+ * @param b
+ * Second value
+ *
+ * @return
+ * The smallest value
+ */
+float utils_smallest_of_2(float a, float b) {
+	if (b < a) {
+		return b;
+	} 
+	return a;
+}
+
+/**
+ * Get the smallest value of three values
+ *
+ * @param a
+ * First value
+ *
+ * @param b
+ * Second value
+ *
+ * @param c
+ * Third value
+ *
+ * @return
+ * The smallest value
+ */
+float utils_smallest_of_3(float a, float b, float c) {
+	if (b < a) {
+		if (c < b) {
+			return c;	
+		} 
+		return b;
+	} else {
+		if (c < a) {
+			return c;
+		} 
+		return a;
+	}
+}
+
+/**
+ * Get the smallest value of two values
+ *
+ * @param a
+ * First value
+ *
+ * @param b
+ * Second value
+ *
+ * @return
+ * The smallest value
+ */
+float utils_highest_of_2(float a, float b) {
+	if (b > a) {
+		return b;
+	} 
+	return a;
+}
+
+/**
  * Get the middle value of three values
  *
  * @param a

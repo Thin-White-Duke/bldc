@@ -35,7 +35,7 @@ void mcpwm_init_hall_table(int8_t *table);
 void mcpwm_set_duty(float dutyCycle);
 void mcpwm_set_duty_noramp(float dutyCycle);
 void mcpwm_set_pid_speed(float rpm);
-void mcpwm_set_pid_speed_and_watt(float rpm, float new_max_pid_watt);
+void mcpwm_set_pid_speed_with_cruise_status(float rpm, ppm_cruise cruise_status);
 void mcpwm_set_pid_pos(float pos);
 void mcpwm_set_current(float current);
 void mcpwm_set_brake_current(float current);

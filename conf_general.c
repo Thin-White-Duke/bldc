@@ -47,7 +47,7 @@ void conf_general_init(void) {
 	memset(VirtAddVarTab, 0, sizeof(VirtAddVarTab));
 
 	int ind = 0;
-	for (unsigned int i = 0;i < (sizeof(app_configuration) / 2);i++) {
+	for (unsigned int i = 0;i < (sizeof(mc_configuration) / 2);i++) {
 		VirtAddVarTab[ind++] = EEPROM_BASE_MCCONF + i;
 	}
 
@@ -133,14 +133,13 @@ void conf_general_get_default_app_configuration(app_configuration *conf) {
 	//new config
 	conf->app_ppm_conf.pulse_center = APPCONF_PPM_PULSE_CENTER;
 	conf->app_ppm_conf.tc_offset = APPCONF_PPM_TC_OFFSET;
-	conf->app_ppm_conf.max_watt_enabled = APPCONF_MAX_WATT_ENABLED;
-	conf->app_ppm_conf.max_watt = APPCONF_MAX_WATT;
-	conf->app_ppm_conf.max_watt_ramp_factor = APPCONF_MAX_WATT_RAMP_FACTOR;
+	conf->app_ppm_conf.cruise_left = CRUISE_CONTROL_MOTOR_SETTINGS;
+	conf->app_ppm_conf.cruise_right = CRUISE_CONTROL_MOTOR_SETTINGS;
+	conf->app_ppm_conf.max_erpm_for_dir_active = APPCONF_PPM_MAX_ERPM_FOR_DIR_ACTIVE;
+	conf->app_ppm_conf.max_erpm_for_dir = APPCONF_PPM_MAX_ERPM_FOR_DIR;
 	
 	conf->app_chuk_conf.tc_offset = APPCONF_CHUK_TC_OFFSET;
-	conf->app_chuk_conf.max_watt_enabled = APPCONF_MAX_WATT_ENABLED;
-	conf->app_chuk_conf.max_watt = APPCONF_MAX_WATT;
-	conf->app_chuk_conf.max_watt_ramp_factor = APPCONF_MAX_WATT_RAMP_FACTOR;
+	conf->app_chuk_conf.buttons_mirrored = APPCONF_CHUK_BUTTONS_MIRRORED;
 	
 	conf->app_throttle_conf.adjustable_throttle_enabled = APPCONF_ADJUSTABLE_THROTTLE_ENABLED;
 	conf->app_throttle_conf.y1_throttle = APPCONF_Y1_THROTTLE;
@@ -271,6 +270,9 @@ void conf_general_get_default_mc_configuration(mc_configuration *conf) {
 	conf->m_current_backoff_gain = MCCONF_M_CURRENT_BACKOFF_GAIN;
 	conf->m_encoder_counts = MCCONF_M_ENCODER_COUNTS;
 	conf->m_sensor_port_mode = MCCONF_M_SENSOR_PORT_MODE;
+	
+	conf->use_max_watt_limit = MCCONF_USE_MAX_WATT_LIMIT;
+	conf->watts_max = MCCONF_WATT_MAX;
 }
 
 /**
