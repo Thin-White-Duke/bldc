@@ -60,14 +60,15 @@ static thread_t *process_tp;
  * from abort mode.
  * See section 22.7.7 on the STM32 reference manual.
  */
-static const CANConfig cancfg = {
+static CANConfig cancfg = {
 		CAN_MCR_ABOM | CAN_MCR_AWUM | CAN_MCR_TXFP,
-		CAN_BTR_SJW(0) | CAN_BTR_TS2(1) |
-		CAN_BTR_TS1(8) | CAN_BTR_BRP(6)
+		CAN_BTR_SJW(3) | CAN_BTR_TS2(2) |
+		CAN_BTR_TS1(9) | CAN_BTR_BRP(5)
 };
 
 // Private functions
 static void send_packet_wrapper(unsigned char *data, unsigned int len);
+static void set_timing(int brp, int ts1, int ts2);
 
 // Function pointers
 static void(*sid_callback)(uint32_t id, uint8_t *data, uint8_t len) = 0;
@@ -99,6 +100,16 @@ void comm_can_init(void) {
 			cancom_status_thread, NULL);
 	chThdCreateStatic(cancom_process_thread_wa, sizeof(cancom_process_thread_wa), NORMALPRIO,
 			cancom_process_thread, NULL);
+}
+
+void comm_can_set_baud(CAN_BAUD baud) {
+	switch (baud) {
+	case CAN_BAUD_125K:	set_timing(15, 14, 4); break;
+	case CAN_BAUD_250K:	set_timing(7, 14, 4); break;
+	case CAN_BAUD_500K:	set_timing(5, 9, 2); break;
+	case CAN_BAUD_1M:	set_timing(2, 9, 2); break;
+	default: break;
+	}
 }
 
 static THD_FUNCTION(cancom_read_thread, arg) {
@@ -160,31 +171,31 @@ static THD_FUNCTION(cancom_process_thread, arg) {
 					switch (cmd) {
 					case CAN_PACKET_SET_DUTY:
 						ind = 0;
-						mc_interface_set_duty((float)buffer_get_int32(rxmsg.data8, &ind) / 100000.0);
+						mc_interface_set_duty(buffer_get_float32(rxmsg.data8, 1e5, &ind));
 						timeout_reset();
 						break;
 
 					case CAN_PACKET_SET_CURRENT:
 						ind = 0;
-						mc_interface_set_current((float)buffer_get_int32(rxmsg.data8, &ind) / 1000.0);
+						mc_interface_set_current(buffer_get_float32(rxmsg.data8, 1e3, &ind));
 						timeout_reset();
 						break;
 
 					case CAN_PACKET_SET_CURRENT_BRAKE:
 						ind = 0;
-						mc_interface_set_brake_current((float)buffer_get_int32(rxmsg.data8, &ind) / 1000.0);
+						mc_interface_set_brake_current(buffer_get_float32(rxmsg.data8, 1e3, &ind));
 						timeout_reset();
 						break;
 
 					case CAN_PACKET_SET_RPM:
 						ind = 0;
-						mc_interface_set_pid_speed((float)buffer_get_int32(rxmsg.data8, &ind));
+						mc_interface_set_pid_speed(buffer_get_float32(rxmsg.data8, 1e0, &ind));
 						timeout_reset();
 						break;
 
 					case CAN_PACKET_SET_POS:
 						ind = 0;
-						mc_interface_set_pid_pos((float)buffer_get_int32(rxmsg.data8, &ind) / 1000000.0);
+						mc_interface_set_pid_pos(buffer_get_float32(rxmsg.data8, 1e6, &ind));
 						timeout_reset();
 						break;
 
@@ -249,6 +260,18 @@ static THD_FUNCTION(cancom_process_thread, arg) {
 					case CAN_PACKET_SET_CURRENT_BRAKE_REL:
 						ind = 0;
 						mc_interface_set_brake_current_rel(buffer_get_float32(rxmsg.data8, 1e5, &ind));
+						timeout_reset();
+						break;
+
+					case CAN_PACKET_SET_CURRENT_HANDBRAKE:
+						ind = 0;
+						mc_interface_set_handbrake(buffer_get_float32(rxmsg.data8, 1e3, &ind));
+						timeout_reset();
+						break;
+
+					case CAN_PACKET_SET_CURRENT_HANDBRAKE_REL:
+						ind = 0;
+						mc_interface_set_handbrake_rel(buffer_get_float32(rxmsg.data8, 1e5, &ind));
 						timeout_reset();
 						break;
 
@@ -529,6 +552,40 @@ void comm_can_set_current_brake_rel(uint8_t controller_id, float current_rel) {
 }
 
 /**
+ * Set handbrake current.
+ *
+ * @param controller_id
+ * The ID of the VESC to set the handbrake current on.
+ *
+ * @param current_rel
+ * The handbrake current value
+ */
+void comm_can_set_handbrake(uint8_t controller_id, float current) {
+	int32_t send_index = 0;
+	uint8_t buffer[4];
+	buffer_append_float32(buffer, current, 1e3, &send_index);
+	comm_can_transmit_eid(controller_id |
+			((uint32_t)CAN_PACKET_SET_CURRENT_HANDBRAKE << 8), buffer, send_index);
+}
+
+/**
+ * Set handbrake current relative to the minimum current limit.
+ *
+ * @param controller_id
+ * The ID of the VESC to set the handbrake current on.
+ *
+ * @param current_rel
+ * The relative handbrake current value, range [0.0 1.0]
+ */
+void comm_can_set_handbrake_rel(uint8_t controller_id, float current_rel) {
+	int32_t send_index = 0;
+	uint8_t buffer[4];
+	buffer_append_float32(buffer, current_rel, 1e5, &send_index);
+	comm_can_transmit_eid(controller_id |
+			((uint32_t)CAN_PACKET_SET_CURRENT_HANDBRAKE_REL << 8), buffer, send_index);
+}
+
+/**
  * Get status message by index.
  *
  * @param index
@@ -566,4 +623,16 @@ can_status_msg *comm_can_get_status_msg_id(int id) {
 
 static void send_packet_wrapper(unsigned char *data, unsigned int len) {
 	comm_can_send_buffer(rx_buffer_last_id, data, len, true);
+}
+
+static void set_timing(int brp, int ts1, int ts2) {
+	brp &= 0b1111111111;
+	ts1 &= 0b1111;
+	ts2 &= 0b111;
+
+	cancfg.btr = CAN_BTR_SJW(3) | CAN_BTR_TS2(ts2) |
+		CAN_BTR_TS1(ts1) | CAN_BTR_BRP(brp);
+
+	canStop(&CANDx);
+	canStart(&CANDx, &cancfg);
 }
